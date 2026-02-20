@@ -1,0 +1,34 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Organiz.UI.Views.FirstRunWindow"
+             Icon="avares://Organiz.UI/Assets/icon.png"
+        Title="Welcome to Organiz — First Run Setup"
+        Width="420" Height="360"
+        WindowStartupLocation="CenterScreen"
+        CanResize="False">
+
+    <StackPanel Margin="24" Spacing="14">
+        <TextBlock Text="Welcome to Organiz!" FontSize="18" FontWeight="Bold" />
+        <TextBlock Text="Please set up your identity and database connection." TextWrapping="Wrap" />
+
+        <Separator />
+
+        <TextBlock Text="Username" FontWeight="SemiBold" />
+        <TextBox x:Name="UsernameBox" Watermark="Enter your username" />
+
+        <TextBlock Text="Database" FontWeight="SemiBold" Margin="0,8,0,0" />
+
+        <Grid ColumnDefinitions="*,8,80" RowDefinitions="Auto">
+            <TextBox Grid.Column="0" x:Name="DbHostBox" Watermark="Host" />
+            <TextBox Grid.Column="2" x:Name="DbPortBox" Watermark="Port" />
+        </Grid>
+
+        <TextBox x:Name="DbNameBox" Watermark="Database name" />
+        <TextBox x:Name="DbUserBox" Watermark="PostgreSQL username" />
+        <TextBox x:Name="DbPasswordBox" Watermark="Password (leave blank if none)" PasswordChar="●" />
+
+        <TextBlock x:Name="ErrorText" Foreground="Red" IsVisible="False" TextWrapping="Wrap" />
+
+        <Button x:Name="OkButton" Content="Save and Start" HorizontalAlignment="Right" Click="OnOkClicked" />
+    </StackPanel>
+</Window>

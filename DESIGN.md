@@ -8,8 +8,8 @@ Organiz is a note-taking application inspired by [Tomboy Notes](https://wiki.gno
 
 | Component   | Technology                        |
 |-------------|-----------------------------------|
-| Language    | C# / .NET 10                      |
-| UI          | Avalonia (latest .NET 10 compatible) |
+| Language    | C# / .NET 10 (SDK 10.0.103)       |
+| UI          | Avalonia 11.3 / Avalonia.AvaloniaEdit 11.4 |
 | Database    | PostgreSQL                        |
 | Auth Model  | Trust-based (no login, user self-identifies) |
 
@@ -19,7 +19,7 @@ Organiz is a note-taking application inspired by [Tomboy Notes](https://wiki.gno
 
 ### Data Structure: N-Tree
 
-All notes exist in a single N-Tree. Each note can have **unlimited children**. The tree has a single **root node** which is displayed on the Main Form at startup.
+All notes exist as one or more N-Trees — one per user. Each user has their own **root node**, displayed on the Main Form at startup. Each note can have **unlimited children**.
 
 ```
 Root Note
@@ -31,7 +31,7 @@ Root Note
 └── Child Note C
 ```
 
-**Orphan notes** are notes that have no parent in the tree. These can arise from deletion of a parent or from conflict resolution. Orphans are managed via the Management Form.
+**Orphan notes** are notes that have no parent in the tree. These can arise from deletion of a parent or from conflict resolution. Orphans are managed via the Management Form. Only orphans that belong to the current user or are public are shown.
 
 ### Lazy Loading Strategy
 
@@ -50,7 +50,7 @@ The entry point of the application. Displays the **root node** of the note tree.
 | Area        | Description |
 |-------------|-------------|
 | Note Area   | An instance of the **NoteEditorControl** (shared user control) displaying the root note. |
-| Scratchpad  | A second instance of the **NoteEditorControl** for temporary content. Per-user, persisted to DB. Content may later be moved into the tree. |
+| Scratchpad  | Opened via **File → Scratchpad** as a separate window. Per-user, persisted to DB. Content may later be moved into the tree manually. |
 
 ### 2. Notes Form
 
@@ -59,8 +59,19 @@ Opened when a user clicks an **in-app link** within any note. Displays a single 
 | Area        | Description |
 |-------------|-------------|
 | Note Area   | An instance of the **NoteEditorControl** showing the linked note. |
+| Menu bar    | A **Note** menu containing a **Delete Note…** action. |
 
 Each in-app link click opens a **new Notes Form window**.
+
+#### Deleting a Note from the Notes Form
+
+The Notes Form provides a **Note → Delete Note…** menu item. Selecting it:
+
+1. Shows a confirmation dialog ("Are you sure?").
+2. On confirmation, deletes the note (children become orphans — same behaviour as deletion from the Management Form).
+3. Closes the Notes Form without saving.
+
+The root note cannot be deleted via this menu.
 
 ### 3. Management Form
 
@@ -71,12 +82,18 @@ Used to manage **orphan notes** and browse the full tree. Has two views:
 | Orphan Notes View  | Lists all notes with no parent. User can select an orphan to delete or link. |
 | Tree Browser View  | Displays the full note tree. Used to select a **target parent** when linking an orphan. |
 
+The Management Form opens on the **Tree Browser** tab by default. It switches to the **Orphan Notes** tab on opening only when orphans are actually present.
+
 **Workflow for linking an orphan:**
 1. User selects an orphan from the Orphan Notes View.
 2. User browses the Tree Browser View and selects a parent note.
-3. The orphan becomes a child of the selected parent.
+3. Clicking **Insert Link in Parent Note** appends an in-app link (`[title](note:UUID)`) to the end of the parent note's content and saves it. The save mechanism detects the new link and sets the orphan's `parent_id` automatically.
 
-**Deletion** of notes is also available from this form.
+**Deletion** of notes is also available from this form (with confirmation dialog).
+
+### Window Behaviour
+
+All Organiz windows (Main Form, Notes Form, Search Form, Management Form) are **independent peers** — no window is a child or owner of another. Any window can be brought to the front at any time without restriction.
 
 ---
 
@@ -103,12 +120,24 @@ The editor **renders** the Markdown with live visual styling so the user sees fo
 
 Each button wraps/unwraps the selected text with Markdown syntax. Formatting is **combinable**.
 
-| Button        | Markdown Applied          | Visual Rendering |
-|---------------|---------------------------|------------------|
-| **Bold**      | `**selected text**`       | Bold text |
-| **Red**       | `__selected text__`       | Red-colored text |
-| **Underline** | `<u>selected text</u>`   | Underlined text |
-| **Link**      | `[selected text](target)` | Clickable link (prompts for target) |
+| Button           | Markdown Applied          | Visual Rendering |
+|------------------|---------------------------|------------------|
+| **Bold**         | `**selected text**`       | Bold text |
+| **Red**          | `__selected text__`       | Red-colored text |
+| **Italic**       | `*selected text*`         | Italic text |
+| **Underline**    | `_selected text_`         | Underlined text |
+| **Link**         | `[selected text](target)` | Clickable link (prompts for target) |
+| **New Child Note** | Creates a new note and inserts an in-app link | See below |
+
+#### New Child Note Button
+
+When the user selects text and clicks **New Child Note**:
+
+1. A new note is created in the database as a child of the **currently displayed note**, with the selected text used as its **title**.
+2. The selected text in the editor is replaced with an in-app link: `[selected text](note:UUID)` pointing to the new note.
+3. A **Notes Form** opens displaying the new (empty) note, ready for editing.
+
+If no text is selected, the button is disabled.
 
 **Bold + Red example:** `**__text__**` — renders as bold and red simultaneously.
 
@@ -120,7 +149,8 @@ The editor applies custom rendering on top of standard Markdown:
 |-----------------------|-------------|
 | `**text**` (asterisks)| **Bold** text |
 | `__text__` (underscores)| **Red-colored** text (not bold) |
-| `<u>text</u>`        | Underlined text |
+| `*text*`        | italic text |
+| `_text_`        | Underlined text (not italic) |
 | `[text](note:UUID)`  | Clickable in-app link |
 | `[text](http...)`    | Clickable external link |
 
@@ -132,13 +162,6 @@ The editor applies custom rendering on top of standard Markdown:
 |------------------------------------|--------|
 | Link target starts with `http`     | Opens in the system's default external browser. |
 | Link target starts with `note:`    | Opens a new **Notes Form** displaying the linked note (by UUID). |
-
----
-
-## Search
-
-- **Full-text search** across all note content.
-- Implementation should leverage PostgreSQL full-text search capabilities (`tsvector` / `tsquery`).
 
 ---
 
@@ -160,11 +183,13 @@ The editor applies custom rendering on top of standard Markdown:
 |----------------|----------------|-------|
 | `id`           | `UUID` PK      | Auto-generated. |
 | `parent_id`    | `UUID` FK NULL  | References `notes.id`. NULL = orphan (except root). |
-| `is_root`      | `BOOLEAN`       | TRUE for the single root note. |
+| `is_root`      | `BOOLEAN`       | TRUE for the user's personal root note. |
 | `title`        | `TEXT`          | Note title. |
 | `content`      | `TEXT`          | Raw Markdown source. |
 | `content_hash` | `TEXT`          | Hash of `content` for conflict detection. |
 | `owner_id`     | `UUID` FK       | References `users.id`. The user who last edited. |
+| `created_by`   | `UUID` FK       | References `users.id`. Immutable creator of the note. |
+| `is_private`   | `BOOLEAN`       | When TRUE, only the creator can view or open this note. |
 | `sort_order`   | `INTEGER`       | Ordering among siblings. |
 | `created_at`   | `TIMESTAMPTZ`   | Row creation time. |
 | `updated_at`   | `TIMESTAMPTZ`   | Last modification time. |
@@ -184,14 +209,14 @@ The editor applies custom rendering on top of standard Markdown:
 
 - `notes.parent_id` — for loading children of a node.
 - `notes.search_vector` — GIN index for full-text search.
-- `notes.is_root` — partial unique index (`WHERE is_root = TRUE`) to enforce single root.
+- `notes.(created_by) WHERE is_root = TRUE` — partial unique index; enforces one root per user (replaces the old single-root index).
 
 ### Content Format (Raw Markdown)
 
 The `content` field stores raw Markdown text. Example:
 
 ```markdown
-This is a note with **bold text** and __red text__ and <u>underlined text</u>.
+This is a note with **bold text** and __red text__ and _underlined text_.
 
 Here is a **__bold and red__** word.
 
@@ -268,6 +293,38 @@ User opens Management Form
 
 Titles are **user-editable**. Each note has a dedicated title field separate from content.
 
+When a note's title is saved, every other note that contains an in-app link to it (`[old text](note:UUID)`) has its link display text updated to the new title automatically. Any open window showing an affected note is reloaded from the database so it stays in sync.
+
+---
+
+## Save Behavior
+
+Notes and scratchpad content are saved explicitly — there is no auto-save on keystroke.
+
+A save is triggered by any of the following:
+
+| Trigger                   | Description |
+|---------------------------|-------------|
+| `Ctrl+S`                  | Keyboard shortcut while the editor has focus. |
+| **Save button**           | A Save button in the NoteEditorControl toolbar. |
+| Form close / window exit  | Saving is attempted automatically when a Notes Form or the Main Form is closed. |
+| **Clicking an in-app link** | The current note is saved before the linked note is opened. |
+| **Opening Manage Notes**  | The root note is saved before the Management Form opens. |
+| **Insert Link in Parent** | Any open window editing the parent note is saved before the link is appended, then reloaded afterwards so its hash stays current. |
+
+On save, the optimistic concurrency check (hash comparison) is performed. If a conflict is detected, the conflict note is created and the user is notified.
+
+---
+
+## Search
+
+Full-text search is available via a dedicated **Search Form**.
+
+- Opened from a search button or menu entry accessible from the Main Form.
+- Contains a text input and a results list.
+- Results display note titles; clicking a result opens the note in a new **Notes Form**.
+- Search is implemented using PostgreSQL `tsvector` / `tsquery` against the `search_vector` column on the `notes` table.
+
 ---
 
 ## Undo / Redo
@@ -304,14 +361,75 @@ Notes can be **exported to Markdown** (`.md` files).
 
 ---
 
+## Configuration File
+
+Organiz stores local configuration in a JSON file at:
+
+```
+~/.config/organiz/config.json
+```
+
+Created automatically on first launch if it does not exist.
+
+### Schema
+
+```json
+{
+  "username": "alice",
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "name": "organiz",
+    "username": "postgres",
+    "password": ""
+  }
+}
+```
+
+The default database configuration targets a local PostgreSQL instance on the standard port (`5432`).
+
+---
+
 ## User Identification
 
 Trust-based, no authentication.
 
 1. On first launch, the user is prompted to **type a username**.
 2. No password required.
-3. The username is stored locally and sent with all database operations to identify the user.
+3. The username is persisted to `~/.config/organiz/config.json` and sent with all database operations to identify the user.
 4. If the username does not exist in the `users` table, a new row is created automatically.
+
+---
+
+## First-Run & Database Initialization
+
+On startup, Organiz checks the following in order:
+
+1. **Config file** — If `~/.config/organiz/config.json` does not exist, it is created with default values and the user is prompted to enter a username and confirm the database connection settings.
+2. **Database schema** — The application runs any pending schema migrations automatically. If the target database does not yet exist, the user is informed and startup is aborted with a clear error message (the app does not attempt to create the database itself; the PostgreSQL database must be created by the user or an install script).
+3. **Root note** — If no root note exists for the current user (`is_root = TRUE AND created_by = userId`), one is created automatically with the title "Root".
+4. **Scratchpad** — If no scratchpad row exists for the current user, one is created automatically (empty content).
+
+---
+
+## Project Structure
+
+The solution is organized as a layered architecture:
+
+```
+Organiz.sln
+├── Organiz.Core/          # Domain models, interfaces, business logic
+├── Organiz.Data/          # PostgreSQL data access (repositories, migrations)
+├── Organiz.UI/            # Avalonia application, forms, controls, ViewModels
+└── Organiz.Tests/         # Unit and integration tests
+```
+
+| Project         | Responsibilities |
+|-----------------|------------------|
+| `Organiz.Core`  | Note, User, Scratchpad models; repository interfaces; conflict resolution logic; export logic |
+| `Organiz.Data`  | Npgsql-based repository implementations; schema migrations (run on startup) |
+| `Organiz.UI`    | Avalonia App, all Forms and Controls, ViewModels, config file management |
+| `Organiz.Tests` | Tests for Core logic and Data layer |
 
 ---
 
@@ -319,9 +437,56 @@ Trust-based, no authentication.
 
 When a parent note is **deleted**, its children become **orphans** (`parent_id` set to `NULL`).
 
+### Single Source of Truth: In-App Links
+
+`parent_id` is always derived from in-app links — it is never set directly from the UI. Every time a note is saved, the system (`SyncParentLinksAsync`) reconciles `parent_id` with the link graph:
+
+- **Link added** (`[text](note:UUID)` appears in new content): if the referenced note is currently orphaned (`parent_id IS NULL`), its `parent_id` is set to the note being saved.
+- **Link removed** or **child with no inbound links**: if no note in the database contains a link to a UUID, that note's `parent_id` is cleared (orphaned).
+
+This means the Management Form's "Insert Link in Parent Note" action works by appending a real text link to the parent's content — the adoption happens as a side-effect of the normal save, not via a separate code path.
+
 - Children are **not** cascade deleted.
 - Orphaned notes appear in the **Management Form → Orphan Notes View**.
 - The user can then re-link orphans to a new parent or delete them individually.
+
+---
+
+## Per-User Roots and Privacy
+
+### Per-User Root Notes
+
+Each user gets their own personal root note created automatically on first login. The root is identified by `is_root = TRUE AND created_by = userId`. The global single-root constraint is replaced by a per-user unique index.
+
+### Note Privacy
+
+Every note has:
+
+| Field        | Description |
+|--------------|-------------|
+| `created_by` | The immutable creator of the note. Set at creation; never changes. |
+| `is_private` | When `TRUE`, only `created_by` can view or open the note. Default is `FALSE` (public). |
+
+#### Visibility Rules
+
+| Who can see the note?       | Condition |
+|-----------------------------|-----------|
+| Everyone                    | `is_private = FALSE` |
+| Creator only                | `is_private = TRUE` |
+
+Visibility is enforced in:
+- `GetChildrenAsync`: children hidden from others when private.
+- `GetOrphansAsync`: private orphans hidden from other users.
+- `SearchAsync`: private notes excluded from others' search results.
+- `NotesWindow.OpenAsync`: hard block — opening another user's private note shows an error and returns without opening.
+
+#### Toggling Privacy
+
+A **Public** checkbox appears in the `NoteEditorControl` toolbar for all regular notes (hidden for the root note and scratchpad). The checkbox is disabled for notes the current user did not create (read-only view of others' public notes). Unchecking "Public" makes the note private on the next save.
+
+#### Privacy Mismatch Warning
+
+When using the Management Form's **Insert Link in Parent Note** to link a private orphan into a public parent note, a confirmation dialog warns the user that the link will make the private note reachable by anyone who can read the parent. The user must explicitly confirm before the link is inserted.
 
 ---
 

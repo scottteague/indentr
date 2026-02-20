@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: docker.io/library/postgres:17-alpine
+    container_name: organiz-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: organiz
+      POSTGRES_USER: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust   # no password required; matches default config.json
+    ports:
+      - "5432:5432"
+    volumes:
+      - organiz-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d organiz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  organiz-pgdata:

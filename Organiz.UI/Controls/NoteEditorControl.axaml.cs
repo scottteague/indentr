@@ -1,0 +1,357 @@
+using System.Text.RegularExpressions;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
+using Organiz.Core.Interfaces;
+using Organiz.Core.Models;
+using Organiz.UI.Controls.Markdown;
+using Organiz.UI.Views;
+
+namespace Organiz.UI.Controls;
+
+public partial class NoteEditorControl : UserControl
+{
+    // ── State ────────────────────────────────────────────────────────────────
+    private Guid?  _noteId;
+    private Guid   _userId;
+    private Guid   _createdBy;
+    private bool   _isRoot;
+    private string _originalHash = "";
+
+    // ── Events raised for parent windows ────────────────────────────────────
+    public event Action<Guid>?   InAppLinkClicked;
+    public event Action<string>? ExternalLinkClicked;
+
+    /// <summary>Raised when "Save" is triggered. Parent handles persistence.</summary>
+    public event Func<string /*title*/, string /*content*/, string /*originalHash*/, bool /*isPublic*/, Task<SaveResult>>? SaveRequested;
+
+    /// <summary>Raised by the "+ Note" button. Parent creates the note and calls back with the new note.</summary>
+    public event Func<string /*title*/, Guid /*parentNoteId*/, Task<Note?>>? NewChildNoteRequested;
+
+    private static readonly Regex LinkPattern =
+        new(@"\[([^\]]*)\]\(([^)]*)\)", RegexOptions.Compiled);
+
+    // Matches list item lines: optional indent, bullet/number, optional checkbox
+    // Group 1 = indent  Group 2 = bullet  Group 3 = "[ ] " or "[x] " (if present)
+    private static readonly Regex ListItemPattern =
+        new(@"^(\s*)([-*]|\d+\.)\s(\[[ xX]\] )?", RegexOptions.Compiled);
+
+    public NoteEditorControl()
+    {
+        InitializeComponent();
+        SetupEditor();
+        // Use the tunneling phase so we intercept Enter/Tab before AvaloniaEdit's
+        // own input handlers consume them (e.g. Enter inserting a bare newline).
+        Editor.TextArea.AddHandler(
+            InputElement.KeyDownEvent, OnEditorKeyDown, RoutingStrategies.Tunnel);
+        Editor.TextArea.SelectionChanged += (_, _) => UpdateNewChildNoteButton();
+    }
+
+    // ── Public load methods ──────────────────────────────────────────────────
+
+    public void LoadNote(Note note, Guid userId)
+    {
+        _noteId    = note.Id;
+        _userId    = userId;
+        _createdBy = note.CreatedBy;
+        _isRoot    = note.IsRoot;
+        _originalHash = note.ContentHash;
+
+        TitleRow.IsVisible = true;
+        TitleBox.Text      = note.Title;
+        Editor.Text        = note.Content;
+        Editor.IsReadOnly  = false;
+
+        // Privacy checkbox: visible for regular notes editable by their creator; hidden for root.
+        PrivacyRow.IsVisible         = !note.IsRoot;
+        PublicCheckBox.IsChecked     = !note.IsPrivate;
+        PublicCheckBox.IsEnabled     = note.CreatedBy == userId;
+
+        UpdateNewChildNoteButton();
+    }
+
+    public void LoadScratchpad(Scratchpad scratchpad, Guid userId)
+    {
+        _noteId       = null;
+        _userId       = userId;
+        _originalHash = scratchpad.ContentHash;
+
+        TitleRow.IsVisible   = false;
+        PrivacyRow.IsVisible = false;
+        Editor.Text          = scratchpad.Content;
+        Editor.IsReadOnly    = false;
+        UpdateNewChildNoteButton();
+    }
+
+    public void UpdateOriginalHash(string newHash) => _originalHash = newHash;
+
+    /// <summary>Updates content and hash in-place without rewiring events. Used when
+    /// an external operation (e.g. Management window) modifies this note in the DB.</summary>
+    public void RefreshNote(Note note)
+    {
+        _noteId              = note.Id;
+        _originalHash        = note.ContentHash;
+        TitleBox.Text        = note.Title;
+        Editor.Text          = note.Content;
+        PublicCheckBox.IsChecked = !note.IsPrivate;
+        UpdateNewChildNoteButton();
+    }
+
+    // ── Editor setup ─────────────────────────────────────────────────────────
+
+    private void SetupEditor()
+    {
+        Editor.TextArea.TextView.LineTransformers.Add(new MarkdownColorizer(Editor.FontFamily));
+        Editor.Options.EnableHyperlinks      = false; // we handle links ourselves
+        Editor.Options.EnableEmailHyperlinks = false;
+
+        // Attach to TextView so the event isn't swallowed by the TextArea first
+        Editor.TextArea.TextView.PointerPressed += OnTextViewPointerPressed;
+    }
+
+    // ── Keyboard ─────────────────────────────────────────────────────────────
+
+    private async void OnEditorKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.S && e.KeyModifiers == KeyModifiers.Control)
+        {
+            e.Handled = true;
+            await DoSave();
+            return;
+        }
+
+        if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+            e.Handled = TryContinueListItem();
+        else if (e.Key == Key.Tab && e.KeyModifiers == KeyModifiers.None)
+            e.Handled = TryIndentListItem();
+        else if (e.Key == Key.Tab && e.KeyModifiers == KeyModifiers.Shift)
+            e.Handled = TryDedentListItem();
+    }
+
+    // ── List keyboard helpers ─────────────────────────────────────────────────
+
+    private bool TryContinueListItem()
+    {
+        var caret = Editor.CaretOffset;
+        var line  = Editor.Document.GetLineByOffset(caret);
+        var text  = Editor.Document.GetText(line.Offset, line.Length);
+
+        var m = ListItemPattern.Match(text);
+        if (!m.Success) return false;
+
+        var indent      = m.Groups[1].Value;
+        var bullet      = m.Groups[2].Value;
+        var hasCheckbox = m.Groups[3].Success;
+        var content     = text[m.Length..];
+
+        // Empty item: pressing Enter exits the list by stripping the prefix
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            Editor.Document.Replace(line.Offset, line.Length, "");
+            Editor.CaretOffset = line.Offset;
+            return true;
+        }
+
+        // Build the continuation prefix for the new line
+        string newPrefix;
+        if (hasCheckbox)
+            newPrefix = $"{indent}{bullet} [ ] ";
+        else if (bullet.EndsWith('.') && int.TryParse(bullet[..^1], out int num))
+            newPrefix = $"{indent}{num + 1}. ";
+        else
+            newPrefix = $"{indent}{bullet} ";
+
+        Editor.Document.Insert(caret, "\n" + newPrefix);
+        Editor.CaretOffset = caret + 1 + newPrefix.Length;
+        return true;
+    }
+
+    private bool TryIndentListItem()
+    {
+        var caret = Editor.CaretOffset;
+        var line  = Editor.Document.GetLineByOffset(caret);
+        var text  = Editor.Document.GetText(line.Offset, line.Length);
+
+        if (!ListItemPattern.IsMatch(text)) return false;
+
+        Editor.Document.Insert(line.Offset, "  ");
+        Editor.CaretOffset = caret + 2;
+        return true;
+    }
+
+    private bool TryDedentListItem()
+    {
+        var caret = Editor.CaretOffset;
+        var line  = Editor.Document.GetLineByOffset(caret);
+        var text  = Editor.Document.GetText(line.Offset, line.Length);
+
+        if (!ListItemPattern.IsMatch(text)) return false;
+
+        // Remove up to 2 leading spaces
+        int spaces = 0;
+        while (spaces < 2 && spaces < text.Length && text[spaces] == ' ')
+            spaces++;
+
+        if (spaces == 0) return true; // already at leftmost — swallow the event anyway
+
+        Editor.Document.Remove(line.Offset, spaces);
+        Editor.CaretOffset = Math.Max(line.Offset, caret - spaces);
+        return true;
+    }
+
+    // ── Mouse (link clicking) ────────────────────────────────────────────────
+
+    private void OnTextViewPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(Editor.TextArea.TextView).Properties.IsLeftButtonPressed) return;
+
+        // Get the document position from the click point (relative to the TextView)
+        var point = e.GetPosition(Editor.TextArea.TextView);
+        var pos   = Editor.TextArea.TextView.GetPosition(point);
+        if (pos is null) return;
+
+        int offset = Editor.Document.GetOffset(pos.Value.Line, pos.Value.Column);
+        var line   = Editor.Document.GetLineByOffset(offset);
+        var text   = Editor.Document.GetText(line.Offset, line.Length);
+
+        foreach (Match m in LinkPattern.Matches(text))
+        {
+            int start = line.Offset + m.Index;
+            int end   = start + m.Length;
+            if (offset < start || offset > end) continue;
+
+            var target = m.Groups[2].Value;
+            if (target.StartsWith("note:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Guid.TryParse(target["note:".Length..], out var noteId))
+                    InAppLinkClicked?.Invoke(noteId);
+            }
+            else
+            {
+                ExternalLinkClicked?.Invoke(target);
+            }
+            e.Handled = true;
+            break;
+        }
+    }
+
+    // ── Toolbar button handlers ──────────────────────────────────────────────
+
+    private void OnBoldClick(object? sender, RoutedEventArgs e)      => WrapSelection("**", "**");
+    private void OnRedClick(object? sender, RoutedEventArgs e)       => WrapSelection("__", "__");
+    private void OnItalicClick(object? sender, RoutedEventArgs e)    => WrapSelection("*", "*");
+    private void OnUnderlineClick(object? sender, RoutedEventArgs e) => WrapSelection("_", "_");
+
+    private async void OnLinkClick(object? sender, RoutedEventArgs e)
+    {
+        var window = TopLevel.GetTopLevel(this) as Window;
+        if (window is null) return;
+
+        var dlg    = new LinkTargetDialog();
+        var target = await dlg.ShowDialogAsync(window);
+        if (target is null) return;
+
+        var selected = Editor.SelectedText;
+        var linkText = string.IsNullOrEmpty(selected) ? target : selected;
+        ReplaceSelection($"[{linkText}]({target})");
+    }
+
+    private async void OnNewChildNoteClick(object? sender, RoutedEventArgs e)
+    {
+        if (_noteId is null || NewChildNoteRequested is null) return;
+        var title = Editor.SelectedText.Trim();
+        if (string.IsNullOrWhiteSpace(title)) return;
+
+        var newNote = await NewChildNoteRequested.Invoke(title, _noteId.Value);
+        if (newNote is null) return;
+
+        ReplaceSelection($"[{title}](note:{newNote.Id})");
+    }
+
+    private async void OnSaveClick(object? sender, RoutedEventArgs e) => await DoSave();
+
+    private async void OnExportClick(object? sender, RoutedEventArgs e)
+    {
+        var window = TopLevel.GetTopLevel(this) as Window;
+        if (window is null) return;
+
+        var sp = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title             = "Export Note",
+            SuggestedFileName = (TitleBox.Text ?? "note").Trim() + ".md",
+            FileTypeChoices   = [new FilePickerFileType("Markdown") { Patterns = ["*.md"] }]
+        });
+        if (sp is null) return;
+
+        var content = LinkPattern.Replace(Editor.Text, m =>
+            m.Groups[2].Value.StartsWith("note:") ? m.Groups[1].Value : m.Value);
+
+        await using var stream = await sp.OpenWriteAsync();
+        await using var writer = new StreamWriter(stream);
+        if (TitleRow.IsVisible && !string.IsNullOrWhiteSpace(TitleBox.Text))
+            await writer.WriteLineAsync($"# {TitleBox.Text}\n");
+        await writer.WriteAsync(content);
+    }
+
+    // ── Save logic ───────────────────────────────────────────────────────────
+
+    public async Task<bool> DoSave()
+    {
+        if (SaveRequested is null) return true;
+
+        var title    = TitleBox.Text ?? "";
+        var isPublic = PublicCheckBox.IsChecked == true;
+        var result   = await SaveRequested.Invoke(title, Editor.Text, _originalHash, isPublic);
+
+        if (result == SaveResult.Conflict)
+        {
+            var window = TopLevel.GetTopLevel(this) as Window;
+            await MessageBox.ShowError(window,
+                "Save Conflict",
+                "Another user modified this note while you were editing. " +
+                "Your version has been saved as a [CONFLICT] note. " +
+                "Please merge the two notes manually.");
+            return false;
+        }
+
+        // Propagate title changes to the display text of every link that points here.
+        if (_noteId is not null)
+        {
+            var affected = await App.Notes.UpdateLinkTitlesAsync(_noteId.Value, title);
+            foreach (var id in affected)
+            {
+                await NotesWindow.ReloadIfOpenAsync(id);
+                await MainWindow.ReloadIfRootAsync(id);
+            }
+        }
+
+        return true;
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private void WrapSelection(string prefix, string suffix)
+    {
+        var selected = Editor.SelectedText;
+        if (selected.StartsWith(prefix) && selected.EndsWith(suffix) && selected.Length > prefix.Length + suffix.Length)
+            ReplaceSelection(selected[prefix.Length..^suffix.Length]);
+        else
+            ReplaceSelection($"{prefix}{selected}{suffix}");
+    }
+
+    private void ReplaceSelection(string replacement)
+    {
+        int start  = Editor.SelectionStart;
+        int length = Editor.SelectionLength;
+        Editor.Document.Replace(start, length, replacement);
+        Editor.SelectionStart  = start;
+        Editor.SelectionLength = replacement.Length;
+    }
+
+    private void UpdateNewChildNoteButton()
+    {
+        NewChildNoteButton.IsEnabled = _noteId is not null
+                                    && !string.IsNullOrWhiteSpace(Editor.SelectedText);
+    }
+}

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Organiz
+Comment=Linked note-taking application
+Exec=/home/lt/src/organiz/Organiz.UI/bin/Debug/net10.0/Organiz.UI
+Icon=/home/lt/src/organiz/Organiz.UI/Assets/icon.png
+Type=Application
+Categories=Utility;Office;
+StartupWMClass=Organiz.UI
