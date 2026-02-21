@@ -5,7 +5,8 @@
              Icon="avares://Organiz.UI/Assets/icon.png"
         Title="Note"
         Width="800" Height="600"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        KeyDown="OnKeyDown">
 
     <DockPanel>
         <Menu DockPanel.Dock="Top">

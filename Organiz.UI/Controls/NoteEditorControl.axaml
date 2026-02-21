@@ -30,7 +30,7 @@
 
         <!-- AvaloniaEdit text editor -->
         <ae:TextEditor x:Name="Editor"
-                       FontFamily="Cascadia Code,Consolas,DejaVu Sans Mono,Liberation Mono,monospace"
+                       FontFamily="Segoe UI,Noto Sans,Liberation Sans,sans-serif"
                        FontSize="14"
                        WordWrap="True"
                        ShowLineNumbers="False"

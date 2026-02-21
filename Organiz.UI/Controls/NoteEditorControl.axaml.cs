@@ -102,7 +102,8 @@ public partial class NoteEditorControl : UserControl
 
     private void SetupEditor()
     {
-        Editor.TextArea.TextView.LineTransformers.Add(new MarkdownColorizer(Editor.FontFamily));
+        var monoFamily = new Avalonia.Media.FontFamily("Cascadia Code,Consolas,DejaVu Sans Mono,Liberation Mono,monospace");
+        Editor.TextArea.TextView.LineTransformers.Add(new MarkdownColorizer(monoFamily, Editor.FontFamily));
         Editor.Options.EnableHyperlinks      = false; // we handle links ourselves
         Editor.Options.EnableEmailHyperlinks = false;
 

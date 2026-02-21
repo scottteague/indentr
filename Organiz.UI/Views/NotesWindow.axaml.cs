@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Organiz.Core.Interfaces;
 using Organiz.Core.Models;
@@ -29,6 +30,12 @@ public partial class NotesWindow : Window
             win.Editor.RefreshNote(fresh);
             win.Title = fresh.Title.Length > 0 ? fresh.Title : "Untitled Note";
         }
+    }
+
+    public static async Task CloseAllAsync()
+    {
+        foreach (var win in _openWindows.ToList())
+            await win.SaveAndCloseAsync();
     }
 
     // ── Instance ─────────────────────────────────────────────────────────────
@@ -129,6 +136,22 @@ public partial class NotesWindow : Window
         _closing = true; // skip save
         await App.Notes.DeleteAsync(_note.Id);
         Close();
+    }
+
+    // ── Keyboard shortcuts ────────────────────────────────────────────────────
+
+    private async void OnKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Q && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+        {
+            e.Handled = true;
+            await CloseAllAsync();
+        }
+        else if (e.Key == Key.Q && e.KeyModifiers == KeyModifiers.Control)
+        {
+            e.Handled = true;
+            await SaveAndCloseAsync();
+        }
     }
 
     // ── Close: cancel → save → re-close (same pattern as MainWindow) ─────────

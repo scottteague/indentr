@@ -18,9 +18,10 @@ namespace Organiz.UI.Controls.Markdown;
 ///   [t](note:…)   → Blue underline (in-app link)
 ///   [t](http…)    → Darker blue underline (external link)
 /// </summary>
-public class MarkdownColorizer(FontFamily monoFamily) : DocumentColorizingTransformer
+public class MarkdownColorizer(FontFamily monoFamily, FontFamily proportionalFamily) : DocumentColorizingTransformer
 {
-    private readonly Typeface _monoTypeface = new(monoFamily, FontStyle.Normal, FontWeight.Regular);
+    private readonly Typeface _monoTypeface         = new(monoFamily,         FontStyle.Normal, FontWeight.Regular);
+    private readonly Typeface _proportionalTypeface = new(proportionalFamily, FontStyle.Normal, FontWeight.Regular);
 
     // ── Patterns ─────────────────────────────────────────────────────────────
 
@@ -92,11 +93,14 @@ public class MarkdownColorizer(FontFamily monoFamily) : DocumentColorizingTransf
         var text     = CurrentContext.Document.GetText(line.Offset, line.Length);
         var baseSize = CurrentContext.GlobalTextRunProperties.FontRenderingEmSize;
 
-        // Fenced code blocks: tinted background; no markdown formatting inside.
+        // Fenced code blocks: tinted background + monospace font; no markdown formatting inside.
         if (GetFencedLines().Contains(line.LineNumber))
         {
             ChangeLinePart(line.Offset, line.Offset + line.Length, el =>
-                el.TextRunProperties.SetBackgroundBrush(CodeBg));
+            {
+                el.TextRunProperties.SetBackgroundBrush(CodeBg);
+                el.TextRunProperties.SetTypeface(_monoTypeface);
+            });
             return;
         }
 
