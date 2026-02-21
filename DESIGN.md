@@ -129,6 +129,19 @@ Each button wraps/unwraps the selected text with Markdown syntax. Formatting is 
 | **Link**         | `[selected text](target)` | Clickable link (prompts for target) |
 | **New Child Note** | Creates a new note and inserts an in-app link | See below |
 
+### Attachment Bar
+
+A fixed strip at the bottom of the NoteEditorControl, visible whenever a note is loaded (hidden for the scratchpad). It contains:
+
+- A **📎 Attach** button that opens a multi-file picker. Each selected file is stored as a PostgreSQL large object and appears immediately as a chip in the bar.
+- One **chip per attachment** showing the filename. Clicking a chip opens the file with the OS default application (written to a temp path first). Right-clicking shows a context menu:
+
+| Action      | Behaviour |
+|-------------|-----------|
+| **Open**    | Writes file to a system temp path and launches with `Process.Start` / `UseShellExecute`. |
+| **Save As…**| Opens a save-file picker; streams bytes directly to the chosen destination. |
+| **Delete**  | Confirmation dialog, then removes the attachment from the database permanently. |
+
 #### New Child Note Button
 
 When the user selects text and clicks **New Child Note**:
@@ -195,6 +208,20 @@ The editor applies custom rendering on top of standard Markdown:
 | `updated_at`   | `TIMESTAMPTZ`   | Last modification time. |
 | `search_vector`| `TSVECTOR`      | Generated column for full-text search. |
 
+#### `attachments`
+
+| Column       | Type           | Notes |
+|--------------|----------------|-------|
+| `id`         | `UUID` PK      | Auto-generated. |
+| `note_id`    | `UUID` FK      | References `notes.id`. `ON DELETE CASCADE` — attachments are removed with their note. |
+| `lo_oid`     | `OID`          | Reference into `pg_largeobject` where the file bytes are stored. |
+| `filename`   | `TEXT`         | Original filename as provided by the user. |
+| `mime_type`  | `TEXT`         | MIME type (currently always `application/octet-stream`; stored for future use). |
+| `size`       | `BIGINT`       | File size in bytes at the time of upload. |
+| `created_at` | `TIMESTAMPTZ`  | Row creation time. |
+
+Large object cleanup is handled by the `trg_attachment_lo_cleanup` trigger (`BEFORE DELETE`), which calls `lo_unlink(OLD.lo_oid)`. This fires for both explicit deletes and cascades from note deletion, preventing orphaned large objects in `pg_largeobject`.
+
 #### `scratchpads`
 
 | Column         | Type           | Notes |
@@ -210,6 +237,7 @@ The editor applies custom rendering on top of standard Markdown:
 - `notes.parent_id` — for loading children of a node.
 - `notes.search_vector` — GIN index for full-text search.
 - `notes.(created_by) WHERE is_root = TRUE` — partial unique index; enforces one root per user (replaces the old single-root index).
+- `attachments.note_id` — for loading all attachments belonging to a note.
 
 ### Content Format (Raw Markdown)
 
@@ -361,6 +389,43 @@ Notes can be **exported to Markdown** (`.md` files).
 
 ---
 
+## Attachments
+
+Any note (including the root note) can have one or more binary file attachments. Attachments are not available on the scratchpad.
+
+### Storage: PostgreSQL Large Objects
+
+File bytes are stored using PostgreSQL's built-in large object facility (`pg_largeobject`). The `attachments` table stores metadata and the `OID` reference; the actual bytes live outside the normal table heap, avoiding bloat on the `notes` table.
+
+Operations use the PostgreSQL functions directly (not the deprecated Npgsql `NpgsqlLargeObjectManager`):
+
+| Operation | SQL Function |
+|-----------|-------------|
+| Store file | `lo_from_bytea(0, @data)` — creates the large object, returns OID |
+| Read file  | `lo_get(lo_oid)` — returns the full content as `bytea` |
+| Delete file | `lo_unlink(lo_oid)` — called automatically by the DB trigger |
+
+All large object function calls require an active transaction, which each repository method opens explicitly.
+
+### Swappable Backend
+
+The storage layer is defined by the `IAttachmentStore` interface in `Organiz.Core`:
+
+```csharp
+Task<IReadOnlyList<AttachmentMeta>> ListForNoteAsync(Guid noteId);
+Task<(AttachmentMeta Meta, Stream Content)?> OpenReadAsync(Guid attachmentId);
+Task<AttachmentMeta> StoreAsync(Guid noteId, string filename, string mimeType, Stream content);
+Task DeleteAsync(Guid attachmentId);
+```
+
+The current implementation (`PostgresAttachmentStore` in `Organiz.Data`) can be replaced with any other backend (e.g. MinIO, local filesystem) by implementing this interface and changing the wiring in `App.axaml.cs`.
+
+### UI
+
+See [Attachment Bar](#attachment-bar) under NoteEditorControl.
+
+---
+
 ## Configuration File
 
 Organiz stores local configuration in a JSON file at:
@@ -426,7 +491,7 @@ Organiz.sln
 
 | Project         | Responsibilities |
 |-----------------|------------------|
-| `Organiz.Core`  | Note, User, Scratchpad models; repository interfaces; conflict resolution logic; export logic |
+| `Organiz.Core`  | Note, User, Scratchpad, AttachmentMeta models; repository/store interfaces; conflict resolution logic; export logic |
 | `Organiz.Data`  | Npgsql-based repository implementations; schema migrations (run on startup) |
 | `Organiz.UI`    | Avalonia App, all Forms and Controls, ViewModels, config file management |
 | `Organiz.Tests` | Tests for Core logic and Data layer |
