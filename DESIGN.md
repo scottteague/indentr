@@ -455,6 +455,42 @@ The default database configuration targets a local PostgreSQL instance on the st
 
 ---
 
+## Container Setup (Docker / Podman)
+
+A `docker-compose.yml` (compatible with both `docker-compose` and `podman-compose`) is provided at the project root. It runs PostgreSQL 17 Alpine.
+
+### Data Directory
+
+PostgreSQL data is stored in a **bind mount** rather than a named volume, so you control exactly where data lives on the host. The mount source is configured via the `ORGANIZ_DATA_DIR` environment variable:
+
+```yaml
+volumes:
+  - ${ORGANIZ_DATA_DIR:-./data}:/var/lib/postgresql/data
+```
+
+If `ORGANIZ_DATA_DIR` is not set, it defaults to `./data` relative to `docker-compose.yml`.
+
+### Configuration
+
+Copy `.env.example` to `.env` (gitignored) and set your preferred path:
+
+```sh
+cp .env.example .env
+# then edit .env:
+ORGANIZ_DATA_DIR=/home/alice/organiz-pgdata
+```
+
+`.env` is loaded automatically by both `docker-compose` and `podman-compose`. It is gitignored so personal paths are never committed. `.env.example` is committed and documents the available variables.
+
+### Quick Start
+
+```sh
+cp .env.example .env          # configure data directory
+podman-compose up -d          # (or: docker compose up -d)
+```
+
+---
+
 ## User Identification
 
 Trust-based, no authentication.

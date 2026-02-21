@@ -49,3 +49,9 @@ package-lock.json
 package.json
 
 .claude/
+
+# Local environment overrides (copy .env.example → .env and customise)
+.env
+
+# Default local PostgreSQL data directory
+data/
