@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.IO;
 using System.Text.RegularExpressions;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -58,10 +60,12 @@ public partial class NoteEditorControl : UserControl
         _isRoot    = note.IsRoot;
         _originalHash = note.ContentHash;
 
-        TitleRow.IsVisible = true;
-        TitleBox.Text      = note.Title;
-        Editor.Text        = note.Content;
-        Editor.IsReadOnly  = false;
+        TitleRow.IsVisible      = true;
+        TitleBox.Text           = note.Title;
+        Editor.Text             = note.Content;
+        Editor.IsReadOnly       = false;
+        AttachmentBar.IsVisible = true;
+        _ = LoadAttachmentsAsync(note.Id);
 
         // Privacy checkbox: visible for regular notes editable by their creator; hidden for root.
         PrivacyRow.IsVisible         = !note.IsRoot;
@@ -77,10 +81,11 @@ public partial class NoteEditorControl : UserControl
         _userId       = userId;
         _originalHash = scratchpad.ContentHash;
 
-        TitleRow.IsVisible   = false;
-        PrivacyRow.IsVisible = false;
-        Editor.Text          = scratchpad.Content;
-        Editor.IsReadOnly    = false;
+        TitleRow.IsVisible      = false;
+        PrivacyRow.IsVisible    = false;
+        AttachmentBar.IsVisible = false;
+        Editor.Text             = scratchpad.Content;
+        Editor.IsReadOnly       = false;
         UpdateNewChildNoteButton();
     }
 
@@ -328,6 +333,112 @@ public partial class NoteEditorControl : UserControl
         }
 
         return true;
+    }
+
+    // ── Attachments ───────────────────────────────────────────────────────────
+
+    private async Task LoadAttachmentsAsync(Guid noteId)
+    {
+        AttachmentPanel.Children.Clear();
+        var attachments = await App.Attachments.ListForNoteAsync(noteId);
+        foreach (var meta in attachments)
+            AttachmentPanel.Children.Add(MakeChip(meta));
+    }
+
+    private Button MakeChip(AttachmentMeta meta)
+    {
+        var chip = new Button { Content = meta.Filename };
+        chip.Click += (_, _) => _ = OpenWithSystemAppAsync(meta);
+
+        var openItem   = new MenuItem { Header = "Open" };
+        var saveItem   = new MenuItem { Header = "Save As…" };
+        var deleteItem = new MenuItem { Header = "Delete" };
+
+        openItem.Click   += (_, _) => _ = OpenWithSystemAppAsync(meta);
+        saveItem.Click   += (_, _) => _ = SaveAsAsync(meta);
+        deleteItem.Click += (_, _) => _ = DeleteAttachmentAsync(meta, chip);
+
+        chip.ContextMenu = new ContextMenu();
+        chip.ContextMenu.Items.Add(openItem);
+        chip.ContextMenu.Items.Add(saveItem);
+        chip.ContextMenu.Items.Add(new Separator());
+        chip.ContextMenu.Items.Add(deleteItem);
+
+        return chip;
+    }
+
+    private async void OnAttachClick(object? sender, RoutedEventArgs e)
+    {
+        if (_noteId is null) return;
+
+        var window = TopLevel.GetTopLevel(this) as Window;
+        if (window is null) return;
+
+        var files = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title       = "Attach file",
+            AllowMultiple = true
+        });
+
+        foreach (var file in files)
+        {
+            await using var stream = await file.OpenReadAsync();
+            var meta = await App.Attachments.StoreAsync(
+                _noteId.Value, file.Name, "application/octet-stream", stream);
+            AttachmentPanel.Children.Add(MakeChip(meta));
+        }
+    }
+
+    private static async Task OpenWithSystemAppAsync(AttachmentMeta meta)
+    {
+        var result = await App.Attachments.OpenReadAsync(meta.Id);
+        if (result is null) return;
+
+        var ext      = Path.GetExtension(meta.Filename);
+        var tempPath = Path.Combine(Path.GetTempPath(), $"organiz_{meta.Id}{ext}");
+
+        var (_, content) = result.Value;
+        await using (content)
+        {
+            await using var fs = File.Create(tempPath);
+            await content.CopyToAsync(fs);
+        }
+
+        Process.Start(new ProcessStartInfo(tempPath) { UseShellExecute = true });
+    }
+
+    private async Task SaveAsAsync(AttachmentMeta meta)
+    {
+        var window = TopLevel.GetTopLevel(this) as Window;
+        if (window is null) return;
+
+        var sp = await window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title             = "Save attachment",
+            SuggestedFileName = meta.Filename
+        });
+        if (sp is null) return;
+
+        var result = await App.Attachments.OpenReadAsync(meta.Id);
+        if (result is null) return;
+
+        var (_, content) = result.Value;
+        await using (content)
+        {
+            await using var dest = await sp.OpenWriteAsync();
+            await content.CopyToAsync(dest);
+        }
+    }
+
+    private async Task DeleteAttachmentAsync(AttachmentMeta meta, Button chip)
+    {
+        var window    = TopLevel.GetTopLevel(this) as Window;
+        var confirmed = await MessageBox.ShowConfirm(
+            window, "Delete Attachment", $"Delete \"{meta.Filename}\"?");
+        if (!confirmed) return;
+
+        await App.Attachments.DeleteAsync(meta.Id);
+        AttachmentPanel.Children.Remove(chip);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

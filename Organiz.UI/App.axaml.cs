@@ -16,6 +16,7 @@ public partial class App : Application
     public static INoteRepository Notes { get; private set; } = null!;
     public static IUserRepository Users { get; private set; } = null!;
     public static IScratchpadRepository Scratchpads { get; private set; } = null!;
+    public static IAttachmentStore Attachments { get; private set; } = null!;
     public static User CurrentUser { get; private set; } = null!;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
@@ -54,9 +55,10 @@ public partial class App : Application
             config.Database.Host, config.Database.Port,
             config.Database.Name, config.Database.Username, config.Database.Password);
 
-        Notes = new NoteRepository(cs);
-        Users = new UserRepository(cs);
+        Notes       = new NoteRepository(cs);
+        Users       = new UserRepository(cs);
         Scratchpads = new ScratchpadRepository(cs);
+        Attachments = new PostgresAttachmentStore(cs);
 
         // Migrate schema
         try

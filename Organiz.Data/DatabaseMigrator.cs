@@ -37,6 +37,7 @@ public class DatabaseMigrator(string connectionString)
     {
         yield return (1, ReadResource("Organiz.Data.Migrations.001_InitialSchema.sql"));
         yield return (2, ReadResource("Organiz.Data.Migrations.002_PrivacyAndPerUserRoot.sql"));
+        yield return (3, ReadResource("Organiz.Data.Migrations.003_Attachments.sql"));
     }
 
     private static string ReadResource(string name)

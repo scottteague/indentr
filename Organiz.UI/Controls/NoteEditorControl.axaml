@@ -28,6 +28,19 @@
             <CheckBox x:Name="PublicCheckBox" Content="Public" ToolTip.Tip="Uncheck to make this note private (visible only to you)" />
         </StackPanel>
 
+        <!-- Attachment bar (hidden for scratchpad; shown when a note is loaded) -->
+        <Border DockPanel.Dock="Bottom" x:Name="AttachmentBar"
+                BorderThickness="0,1,0,0" Padding="4,3,4,3" IsVisible="False">
+            <DockPanel>
+                <Button DockPanel.Dock="Left" Content="📎 Attach" Margin="0,0,6,0"
+                        ToolTip.Tip="Attach a file to this note" Click="OnAttachClick" />
+                <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="AttachmentPanel" Orientation="Horizontal" Spacing="4" />
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
         <!-- AvaloniaEdit text editor -->
         <ae:TextEditor x:Name="Editor"
                        FontFamily="Segoe UI,Noto Sans,Liberation Sans,sans-serif"
