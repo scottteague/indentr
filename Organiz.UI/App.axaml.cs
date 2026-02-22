@@ -12,12 +12,13 @@ namespace Organiz.UI;
 
 public partial class App : Application
 {
-    // Shared services, set after first-run / DB init
-    public static INoteRepository Notes { get; private set; } = null!;
-    public static IUserRepository Users { get; private set; } = null!;
-    public static IScratchpadRepository Scratchpads { get; private set; } = null!;
-    public static IAttachmentStore Attachments { get; private set; } = null!;
-    public static User CurrentUser { get; private set; } = null!;
+    // Shared services, set after profile selection and DB init
+    public static INoteRepository     Notes          { get; private set; } = null!;
+    public static IUserRepository     Users          { get; private set; } = null!;
+    public static IScratchpadRepository Scratchpads  { get; private set; } = null!;
+    public static IAttachmentStore    Attachments    { get; private set; } = null!;
+    public static User                CurrentUser    { get; private set; } = null!;
+    public static DatabaseProfile     CurrentProfile { get; private set; } = null!;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -25,7 +26,6 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // Run startup asynchronously but block the first window open
             desktop.MainWindow = new LoadingWindow();
             _ = StartupAsync(desktop);
         }
@@ -37,30 +37,39 @@ public partial class App : Application
     {
         var config = ConfigManager.Load();
 
-        // First run: prompt for username and DB settings
-        if (ConfigManager.IsFirstRun())
+        DatabaseProfile? profile;
+
+        if (config.Profiles.Count == 1)
         {
-            var firstRun = new FirstRunWindow(config);
-            var ok = await firstRun.ShowDialogAsync();
-            if (!ok)
+            // Exactly one profile — use it directly, no picker needed.
+            profile             = config.Profiles[0];
+            config.LastProfile  = profile.Name;
+            ConfigManager.Save(config);
+        }
+        else
+        {
+            // 0 profiles (first run) or 2+ profiles — show the picker.
+            profile = await ProfilePickerWindow.ShowForStartupAsync(config);
+            if (profile is null)
             {
                 desktop.Shutdown();
                 return;
             }
-            ConfigManager.Save(config);
         }
 
-        // Build connection string and wire up repositories
+        CurrentProfile = profile;
+
+        // Build connection string and wire up repositories.
         var cs = ConnectionStringBuilder.Build(
-            config.Database.Host, config.Database.Port,
-            config.Database.Name, config.Database.Username, config.Database.Password);
+            profile.Database.Host, profile.Database.Port,
+            profile.Database.Name, profile.Database.Username, profile.Database.Password);
 
         Notes       = new NoteRepository(cs);
         Users       = new UserRepository(cs);
         Scratchpads = new ScratchpadRepository(cs);
         Attachments = new PostgresAttachmentStore(cs);
 
-        // Migrate schema
+        // Migrate schema.
         try
         {
             await new DatabaseMigrator(cs).MigrateAsync();
@@ -74,16 +83,14 @@ public partial class App : Application
             return;
         }
 
-        // Ensure user exists
-        CurrentUser = await Users.GetOrCreateAsync(config.Username);
-
-        // Bootstrap root note and scratchpad
+        // Ensure user and bootstrap data exist.
+        CurrentUser = await Users.GetOrCreateAsync(profile.Username);
         await Notes.EnsureRootExistsAsync(CurrentUser.Id);
         await Scratchpads.GetOrCreateForUserAsync(CurrentUser.Id);
 
-        // Open main window — save the loading window ref before replacing it
+        // Open main window.
         var loadingWindow = desktop.MainWindow;
-        var mainWindow = new MainWindow();
+        var mainWindow    = new MainWindow();
         desktop.MainWindow = mainWindow;
         mainWindow.Show();
         loadingWindow?.Close();

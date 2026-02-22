@@ -15,6 +15,8 @@
                 <MenuItem Header="S_cratchpad"       Click="OnScratchpadClicked" />
                 <MenuItem Header="_Manage Notes…"    Click="OnManageClicked" />
                 <Separator />
+                <MenuItem Header="Switch _Profile…"  Click="OnManageProfilesClicked" />
+                <Separator />
                 <MenuItem Header="E_xit"             Click="OnExitClicked" />
             </MenuItem>
         </Menu>

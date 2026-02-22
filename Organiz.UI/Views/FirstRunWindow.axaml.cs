@@ -6,54 +6,85 @@ namespace Organiz.UI.Views;
 
 public partial class FirstRunWindow : Window
 {
-    private readonly AppConfig _config;
+    private readonly DatabaseProfile _profile;
     private bool _ok;
 
-    // Parameterless constructor required by Avalonia's AXAML loader
-    public FirstRunWindow() : this(new AppConfig()) { }
+    // Required by Avalonia's AXAML loader
+    public FirstRunWindow() : this(new DatabaseProfile(), isNew: true) { }
 
-    public FirstRunWindow(AppConfig config)
+    public FirstRunWindow(DatabaseProfile profile, bool isNew)
     {
-        _config = config;
+        _profile = profile;
         InitializeComponent();
 
-        // Pre-fill with current values
-        UsernameBox.Text = config.Username;
-        DbHostBox.Text = config.Database.Host;
-        DbPortBox.Text = config.Database.Port.ToString();
-        DbNameBox.Text = config.Database.Name;
-        DbUserBox.Text = config.Database.Username;
-        DbPasswordBox.Text = config.Database.Password;
+        if (isNew)
+        {
+            Title                = "Add Profile";
+            HeadingText.Text     = "Add Profile";
+            SubheadingText.Text  = "Choose a name for this profile and configure its database connection.";
+            OkButton.Content     = "Add Profile";
+        }
+        else
+        {
+            Title                = "Edit Profile";
+            HeadingText.Text     = "Edit Profile";
+            SubheadingText.Text  = "Update the settings for this profile.";
+            OkButton.Content     = "Save";
+        }
+
+        ProfileNameBox.Text = profile.Name;
+        UsernameBox.Text    = profile.Username;
+        DbHostBox.Text      = profile.Database.Host;
+        DbPortBox.Text      = profile.Database.Port.ToString();
+        DbNameBox.Text      = profile.Database.Name;
+        DbUserBox.Text      = profile.Database.Username;
+        DbPasswordBox.Text  = profile.Database.Password;
     }
 
-    public Task<bool> ShowDialogAsync()
+    /// <summary>Shows the window. Pass an owner to make it modal; omit for standalone use.</summary>
+    public async Task<bool> ShowDialogAsync(Window? owner = null)
     {
+        if (owner is not null)
+        {
+            await ShowDialog(owner);
+            return _ok;
+        }
+
         var tcs = new TaskCompletionSource<bool>();
         Closed += (_, _) => tcs.TrySetResult(_ok);
         Show();
-        return tcs.Task;
+        return await tcs.Task;
     }
 
     private void OnOkClicked(object? sender, RoutedEventArgs e)
     {
+        var name = ProfileNameBox.Text?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            ShowError("Profile name cannot be empty.");
+            return;
+        }
+
         var username = UsernameBox.Text?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(username))
         {
             ShowError("Username cannot be empty.");
             return;
         }
+
         if (!int.TryParse(DbPortBox.Text, out var port) || port < 1 || port > 65535)
         {
             ShowError("Port must be a number between 1 and 65535.");
             return;
         }
 
-        _config.Username = username;
-        _config.Database.Host = DbHostBox.Text?.Trim() ?? "localhost";
-        _config.Database.Port = port;
-        _config.Database.Name = DbNameBox.Text?.Trim() ?? "organiz";
-        _config.Database.Username = DbUserBox.Text?.Trim() ?? "postgres";
-        _config.Database.Password = DbPasswordBox.Text ?? "";
+        _profile.Name              = name;
+        _profile.Username          = username;
+        _profile.Database.Host     = DbHostBox.Text?.Trim() ?? "localhost";
+        _profile.Database.Port     = port;
+        _profile.Database.Name     = DbNameBox.Text?.Trim() ?? "organiz";
+        _profile.Database.Username = DbUserBox.Text?.Trim() ?? "postgres";
+        _profile.Database.Password = DbPasswordBox.Text ?? "";
 
         _ok = true;
         Close();
@@ -61,7 +92,7 @@ public partial class FirstRunWindow : Window
 
     private void ShowError(string message)
     {
-        ErrorText.Text = message;
+        ErrorText.Text      = message;
         ErrorText.IsVisible = true;
     }
 }

@@ -18,7 +18,27 @@ public static class ConfigManager
         try
         {
             var json = File.ReadAllText(ConfigPath);
-            return JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+            var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions) ?? new AppConfig();
+
+            // Migrate from pre-profile format (Username + Database at top level).
+            if (config.Profiles.Count == 0)
+            {
+                var legacy = JsonSerializer.Deserialize<LegacyAppConfig>(json, JsonOptions);
+                if (legacy != null && !string.IsNullOrWhiteSpace(legacy.Username))
+                {
+                    var profile = new DatabaseProfile
+                    {
+                        Name     = "Default",
+                        Username = legacy.Username,
+                        Database = legacy.Database
+                    };
+                    config.Profiles.Add(profile);
+                    config.LastProfile = profile.Name;
+                    Save(config);
+                }
+            }
+
+            return config;
         }
         catch
         {
@@ -33,5 +53,12 @@ public static class ConfigManager
         File.WriteAllText(ConfigPath, json);
     }
 
-    public static bool IsFirstRun() => !File.Exists(ConfigPath) || string.IsNullOrWhiteSpace(Load().Username);
+    public static bool IsFirstRun() => !File.Exists(ConfigPath) || Load().Profiles.Count == 0;
+
+    // Used only to detect the pre-profile config format during migration.
+    private sealed class LegacyAppConfig
+    {
+        public string Username { get; set; } = "";
+        public DatabaseConfig Database { get; set; } = new();
+    }
 }

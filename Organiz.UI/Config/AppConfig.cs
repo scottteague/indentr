@@ -1,9 +1,16 @@
 namespace Organiz.UI.Config;
 
-public class AppConfig
+public class DatabaseProfile
 {
+    public string Name { get; set; } = "";
     public string Username { get; set; } = "";
     public DatabaseConfig Database { get; set; } = new();
+}
+
+public class AppConfig
+{
+    public string LastProfile { get; set; } = "";
+    public List<DatabaseProfile> Profiles { get; set; } = new();
 }
 
 public class DatabaseConfig

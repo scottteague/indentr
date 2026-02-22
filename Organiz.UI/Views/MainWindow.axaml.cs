@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Organiz.Core.Interfaces;
 using Organiz.Core.Models;
+using Organiz.UI.Config;
 
 namespace Organiz.UI.Views;
 
@@ -101,6 +103,25 @@ public partial class MainWindow : Window
     {
         await RootEditor.DoSave();
         new ManagementWindow().Show();
+    }
+
+    private async void OnManageProfilesClicked(object? sender, RoutedEventArgs e)
+    {
+        var config   = ConfigManager.Load();
+        var selected = await ProfilePickerWindow.ShowForManageAsync(config);
+        if (selected is null) return; // picker closed without switching
+
+        // Save the root note and all open note windows before restarting.
+        await RootEditor.DoSave();
+        await NotesWindow.CloseAllAsync();
+
+        // Restart the process; the current instance exits via Close().
+        var exe = Environment.ProcessPath;
+        if (exe is not null)
+            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = false });
+
+        _closing = true; // skip the save-on-close in OnClosing
+        Close();
     }
 
     private void OnExitClicked(object? sender, RoutedEventArgs e) => Close();

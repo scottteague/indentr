@@ -51,6 +51,7 @@ The entry point of the application. Displays the **root node** of the note tree.
 |-------------|-------------|
 | Note Area   | An instance of the **NoteEditorControl** (shared user control) displaying the root note. |
 | Scratchpad  | Opened via **File → Scratchpad** as a separate window. Per-user, persisted to DB. Content may later be moved into the tree manually. |
+| Switch Profile | **File → Switch Profile…** opens the Profile Picker in manage mode. The user can add, edit, or delete profiles, or select a different one to switch to. Switching saves all open notes and restarts the application with the chosen profile. |
 
 ### 2. Notes Form
 
@@ -440,18 +441,68 @@ Created automatically on first launch if it does not exist.
 
 ```json
 {
-  "username": "alice",
-  "database": {
-    "host": "localhost",
-    "port": 5432,
-    "name": "organiz",
-    "username": "postgres",
-    "password": ""
-  }
+  "lastProfile": "Personal",
+  "profiles": [
+    {
+      "name": "Personal",
+      "username": "alice",
+      "database": {
+        "host": "localhost",
+        "port": 5432,
+        "name": "organiz",
+        "username": "postgres",
+        "password": ""
+      }
+    },
+    {
+      "name": "Work",
+      "username": "alice",
+      "database": {
+        "host": "work-server",
+        "port": 5432,
+        "name": "organiz",
+        "username": "postgres",
+        "password": ""
+      }
+    }
+  ]
 }
 ```
 
-The default database configuration targets a local PostgreSQL instance on the standard port (`5432`).
+`lastProfile` records the name of the most recently used profile so it can be pre-selected in the picker on next launch.
+
+### Profiles
+
+Each entry in `profiles` bundles a display name, an Organiz username, and a full database connection config. This allows switching between entirely independent databases (e.g. personal, work, testing) without editing the file manually.
+
+### Legacy Migration
+
+Older installs stored `username` and `database` at the top level of `config.json`. On first load with the new format, `ConfigManager` detects this automatically, wraps the existing settings into a profile named **"Default"**, and re-saves the file in the new format. No manual migration is required.
+
+---
+
+## Profile Picker
+
+The **Profile Picker** (`ProfilePickerWindow`) is a small modal that handles both startup profile selection and in-app profile management. It is the same window in both contexts; only the action button label differs.
+
+| Mode | Trigger | Action button |
+|------|---------|---------------|
+| Startup | 0 or 2+ profiles exist at launch | **Open** |
+| Manage | File → Switch Profile… | **Switch & Restart** |
+
+### Behaviour
+
+- The list shows all configured profiles. In manage mode, the currently active profile is marked with ✓.
+- **Add** — opens `FirstRunWindow` as a modal dialog to enter a new profile name, username, and database settings. Duplicate profile names are rejected.
+- **Edit** — opens `FirstRunWindow` pre-filled with the selected profile's current settings.
+- **Delete** — confirmation dialog, then removes the profile. `lastProfile` is updated to the next available profile if the deleted one was active.
+- **Open / Switch & Restart** — saves the selection to `lastProfile` in `config.json`, then:
+  - In startup mode: proceeds with app initialisation.
+  - In manage mode: saves all open notes, closes all note windows, restarts the process, and exits the current instance.
+
+### First-ever launch (0 profiles)
+
+The picker opens with an empty list and immediately triggers the Add dialog. If the user cancels without creating a profile, the app shuts down.
 
 ---
 
@@ -495,10 +546,11 @@ podman-compose up -d          # (or: docker compose up -d)
 
 Trust-based, no authentication.
 
-1. On first launch, the user is prompted to **type a username**.
+1. Each **profile** carries its own username. On first launch (no profiles exist), the user is prompted to create a profile including a username.
 2. No password required.
-3. The username is persisted to `~/.config/organiz/config.json` and sent with all database operations to identify the user.
+3. The username is stored in the active profile in `~/.config/organiz/config.json` and sent with all database operations to identify the user.
 4. If the username does not exist in the `users` table, a new row is created automatically.
+5. Different profiles can use different usernames, allowing a single install to act as different identities against different databases.
 
 ---
 
@@ -506,8 +558,11 @@ Trust-based, no authentication.
 
 On startup, Organiz checks the following in order:
 
-1. **Config file** — If `~/.config/organiz/config.json` does not exist, it is created with default values and the user is prompted to enter a username and confirm the database connection settings.
-2. **Database schema** — The application runs any pending schema migrations automatically. If the target database does not yet exist, the user is informed and startup is aborted with a clear error message (the app does not attempt to create the database itself; the PostgreSQL database must be created by the user or an install script).
+1. **Profile selection** — Config is loaded from `~/.config/organiz/config.json`.
+   - **No profiles** (first-ever launch): the **Profile Picker** opens and immediately prompts the user to add a profile (name, username, database connection). The app does not proceed until at least one profile exists.
+   - **Exactly one profile**: it is used automatically — no picker is shown.
+   - **Two or more profiles**: the **Profile Picker** is shown so the user can choose which database to open. The last-used profile is pre-selected.
+2. **Database schema** — The application runs any pending schema migrations automatically against the selected profile's database. If the target database does not yet exist, the user is informed and startup is aborted with a clear error message (the app does not attempt to create the database itself; the PostgreSQL database must be created by the user or an install script).
 3. **Root note** — If no root note exists for the current user (`is_root = TRUE AND created_by = userId`), one is created automatically with the title "Root".
 4. **Scratchpad** — If no scratchpad row exists for the current user, one is created automatically (empty content).
 
