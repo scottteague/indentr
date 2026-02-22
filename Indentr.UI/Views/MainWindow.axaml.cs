@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Indentr.Core.Interfaces;
 using Indentr.Core.Models;
 using Indentr.UI.Config;
@@ -19,6 +21,10 @@ public partial class MainWindow : Window
             await _instance.RootEditor.DoSave();
     }
 
+    // Called by NotesWindow and ScratchpadWindow when Shift+Ctrl+S is pressed there.
+    public static Task TriggerSyncSaveAsync() =>
+        _instance?.SaveAllAndSyncAsync() ?? Task.CompletedTask;
+
     public static async Task ReloadIfRootAsync(Guid noteId)
     {
         if (_instance?._rootNote?.Id != noteId) return;
@@ -30,8 +36,9 @@ public partial class MainWindow : Window
 
     // ── Instance ─────────────────────────────────────────────────────────────
 
-    private Note? _rootNote;
-    private bool  _closing;
+    private Note?            _rootNote;
+    private bool             _closing;
+    private DispatcherTimer? _syncTimer;
 
     public MainWindow()
     {
@@ -43,6 +50,20 @@ public partial class MainWindow : Window
 
     private async Task LoadAsync()
     {
+        // Show the sync bar and start the background timer only when a remote is configured.
+        if (App.CurrentProfile.RemoteDatabase is not null)
+        {
+            SyncBar.IsVisible = true;
+            var lastSync = await App.Sync.GetLastSyncedAtAsync();
+            SyncStatusText.Text = lastSync == DateTimeOffset.MinValue
+                ? "Never synced"
+                : $"Last synced at {lastSync.ToLocalTime():HH:mm}";
+
+            _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(10) };
+            _syncTimer.Tick += async (_, _) => await RunSyncAsync();
+            _syncTimer.Start();
+        }
+
         _rootNote = await App.Notes.GetRootAsync(App.CurrentUser.Id);
         if (_rootNote is not null)
         {
@@ -124,7 +145,52 @@ public partial class MainWindow : Window
         Close();
     }
 
+    private async void OnSyncNowClicked(object? sender, RoutedEventArgs e) => await RunSyncAsync();
+
+    // Shared by the manual button and the auto-sync timer. Guards against concurrent
+    // syncs by checking whether the button is already disabled.
+    private async Task RunSyncAsync()
+    {
+        if (!SyncNowButton.IsEnabled) return; // already syncing
+        SyncNowButton.IsEnabled = false;
+        SyncStatusText.Text     = "Syncing…";
+
+        var result = await App.Sync.SyncOnceAsync();
+
+        SyncStatusText.Text = result.Status switch
+        {
+            SyncStatus.Success => $"Synced at {DateTime.Now:HH:mm}",
+            SyncStatus.Offline => "Offline",
+            SyncStatus.Failed  => $"Sync failed: {result.Message}",
+            _                  => "Unknown sync state"
+        };
+
+        SyncNowButton.IsEnabled = true;
+    }
+
     private void OnExitClicked(object? sender, RoutedEventArgs e) => Close();
+
+    // ── Keyboard shortcuts ────────────────────────────────────────────────────
+
+    private async void OnKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.S && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+        {
+            e.Handled = true;
+            await SaveAllAndSyncAsync();
+        }
+    }
+
+    // Saves all open editing surfaces, then runs a sync cycle if a remote is configured.
+    // Also the target of TriggerSyncSaveAsync() called from child windows.
+    private async Task SaveAllAndSyncAsync()
+    {
+        await RootEditor.DoSave();
+        await NotesWindow.SaveAllAsync();
+        await ScratchpadWindow.SaveAllAsync();
+        if (App.CurrentProfile.RemoteDatabase is not null)
+            await RunSyncAsync();
+    }
 
     // ── Close: cancel → save → re-close ─────────────────────────────────────
     // async void OnClosing doesn't work: base.OnClosing runs before the awaits
@@ -143,6 +209,7 @@ public partial class MainWindow : Window
 
     private async Task SaveAndCloseAsync()
     {
+        _syncTimer?.Stop();
         await RootEditor.DoSave();
         _closing = true;
         Close();

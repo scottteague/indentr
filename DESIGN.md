@@ -778,3 +778,116 @@ When using the Management Form's **Insert Link in Parent Note** to link a privat
 ## Scratchpad Workflow
 
 The scratchpad is a **user-managed workspace**. Moving content from the scratchpad into the note tree is done **manually by the user** (copy/paste). No dedicated "Move to..." automation is planned.
+
+---
+
+## Local/Remote Sync
+
+### Principle: Local-First
+
+Indentr always runs against a **local PostgreSQL instance**. The remote database (if configured) is a secondary target that data is pushed to / pulled from on a best-effort basis. The app works fully offline; the remote is optional.
+
+```
+indentr app
+    │
+    ▼ (always)
+local pg (localhost)
+    │
+    ? (when reachable)
+    ▼
+remote pg server
+```
+
+### Configuration
+
+Each profile in `~/.config/indentr/config.json` may include an optional `remoteDatabase` block alongside the existing `database` block. If `remoteDatabase` is absent or null, sync is disabled for that profile.
+
+```json
+{
+  "name": "Work",
+  "username": "alice",
+  "database":       { "host": "localhost", "port": 5432, "name": "indentr", ... },
+  "remoteDatabase": { "host": "work-server", "port": 5432, "name": "indentr", ... }
+}
+```
+
+### Schema (Migration 005)
+
+Two new tables are added to the **local** database by Migration 005:
+
+#### `sync_log`
+
+Tracks every INSERT, UPDATE, and DELETE on entity tables via database triggers. Consumed by `SyncService` to know what to push to the remote. Entries are deleted from this table after they have been confirmed on the remote.
+
+| Column        | Type           | Notes |
+|---------------|----------------|-------|
+| `id`          | `BIGSERIAL` PK | Auto-increment; process in order. |
+| `entity_type` | `TEXT`         | Table name: `notes`, `scratchpads`, `users`, `attachments`, `kanban_boards`, `kanban_columns`, `kanban_cards`. |
+| `entity_id`   | `UUID`         | PK of the changed row. |
+| `operation`   | `TEXT`         | `INSERT`, `UPDATE`, or `DELETE`. |
+| `occurred_at` | `TIMESTAMPTZ`  | When the change happened locally. |
+
+Indexes: `occurred_at` (for ordering), `(entity_type, entity_id)` (for deduplication).
+
+#### `sync_state`
+
+Single-row table. `last_synced_at` is updated to `NOW()` after every successful sync cycle. Used as the lower-bound timestamp when pulling changes from the remote.
+
+| Column          | Type          | Notes |
+|-----------------|---------------|-------|
+| `id`            | `INTEGER` PK  | Always 1 (enforced by CHECK constraint). |
+| `last_synced_at`| `TIMESTAMPTZ` | Epoch until the first successful sync. |
+
+#### Kanban sub-table additions
+
+`kanban_columns` and `kanban_cards` now have an `updated_at TIMESTAMPTZ` column (added in Migration 005). This makes them filterable by timestamp on the pull side, consistent with all other entity tables. An `fn_set_updated_at` BEFORE UPDATE trigger maintains the column automatically.
+
+### Triggers
+
+A shared `fn_sync_log()` trigger function is applied to all seven entity tables:
+
+`notes`, `scratchpads`, `users`, `attachments`, `kanban_boards`, `kanban_columns`, `kanban_cards`
+
+The function uses `TG_TABLE_NAME` as `entity_type`, so one function handles all tables. For DELETE events it reads `OLD.id`; for INSERT/UPDATE it reads `NEW.id`. The trigger fires AFTER the row operation, so it never blocks the originating write.
+
+For `attachments`, the existing `trg_attachment_lo_cleanup` (BEFORE DELETE) is unaffected — the sync trigger fires AFTER and is independent.
+
+### Sync Cycle (not yet implemented — see TODO)
+
+The planned `SyncService` will execute the following steps:
+
+1. **Connect to remote** — if unreachable, log failure to the status bar and exit the cycle gracefully. No writes are attempted.
+2. **Run remote migrations** — ensure the remote schema is up to date (same `DatabaseMigrator`, remote connection string).
+3. **Push phase** — read all `sync_log` entries in `id` order. For each:
+   - `INSERT` / `UPDATE`: read the full entity row from local, upsert it on remote.
+   - `DELETE`: delete the row from remote (ignore if already gone).
+   - Users referenced by `owner_id` / `created_by` are upserted on remote before any note that references them.
+   - Attachment bytes are transferred via `lo_get` / `lo_from_bytea` (files are always uploaded to keep the remote the one true copy).
+   - After confirming success, delete the sync_log entry.
+4. **Pull phase** — query remote for all entity rows with `updated_at > last_synced_at`. For each:
+   - If the row does not exist locally: insert it.
+   - If the row exists locally and has not changed since `last_synced_at`: update it.
+   - If the row exists locally and **has** changed since `last_synced_at` (both sides modified): conflict. Create a `[CONFLICT] title (by user on timestamp)` sibling note (same resolution as the existing hash-based conflict path).
+   - Remote deletes are detected by comparing remote UUID sets to local UUID sets; entities present locally but absent remotely (and with no local INSERT in `sync_log`) are deleted locally.
+5. **Update `sync_state`** — set `last_synced_at = NOW()`.
+
+### Conflict Rules
+
+| Situation | Outcome |
+|-----------|---------|
+| Both sides modified same note | Local version kept; remote version copied as `[CONFLICT] title (by user on timestamp)` sibling. |
+| Remote deleted, local unmodified | Local row is deleted. |
+| Remote deleted, local modified since last sync | Local edit wins; the deletion is ignored. The note is pushed to remote on the next sync. |
+| Local deleted, remote unmodified | Remote row is deleted on push. |
+| Local deleted, remote modified since last sync | Remote edit wins; row is pulled and recreated locally. |
+
+### Sync Triggers and the Pull Phase
+
+Applying remote changes locally will fire the sync_log triggers, generating new sync_log entries. On the following push phase these entries result in upserts against the remote — which are no-ops (remote already has the same data). This is harmless and avoids the complexity of disabling triggers during pull.
+
+### UI (not yet implemented — see TODO)
+
+- **Sync status bar** — a single-line strip at the bottom of the Main Form showing the last sync outcome (`Synced at 14:32`, `Offline`, `Sync failed: …`).
+- **Sync button** — triggers an immediate sync cycle.
+- **Auto-sync** — fires every 10 minutes in the background.
+- **Shift+Ctrl+S** — saves all open windows then runs a full sync cycle.

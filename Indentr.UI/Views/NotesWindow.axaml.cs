@@ -32,6 +32,12 @@ public partial class NotesWindow : Window
         }
     }
 
+    public static async Task SaveAllAsync()
+    {
+        foreach (var win in _openWindows.ToList())
+            await win.Editor.DoSave();
+    }
+
     public static async Task CloseAllAsync()
     {
         foreach (var win in _openWindows.ToList())
@@ -142,7 +148,12 @@ public partial class NotesWindow : Window
 
     private async void OnKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Q && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+        if (e.Key == Key.S && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+        {
+            e.Handled = true;
+            await MainWindow.TriggerSyncSaveAsync();
+        }
+        else if (e.Key == Key.Q && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
         {
             e.Handled = true;
             await CloseAllAsync();

@@ -5,6 +5,8 @@ public class DatabaseProfile
     public string Name { get; set; } = "";
     public string Username { get; set; } = "";
     public DatabaseConfig Database { get; set; } = new();
+    // Optional remote database for sync. Null = sync disabled for this profile.
+    public DatabaseConfig? RemoteDatabase { get; set; }
 }
 
 public class AppConfig

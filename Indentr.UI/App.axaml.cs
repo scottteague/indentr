@@ -18,6 +18,7 @@ public partial class App : Application
     public static IScratchpadRepository Scratchpads  { get; private set; } = null!;
     public static IAttachmentStore    Attachments    { get; private set; } = null!;
     public static IKanbanRepository   Kanban         { get; private set; } = null!;
+    public static ISyncService        Sync           { get; private set; } = null!;
     public static User                CurrentUser    { get; private set; } = null!;
     public static DatabaseProfile     CurrentProfile { get; private set; } = null!;
 
@@ -70,6 +71,11 @@ public partial class App : Application
         Scratchpads = new ScratchpadRepository(cs);
         Attachments = new PostgresAttachmentStore(cs);
         Kanban      = new KanbanRepository(cs);
+
+        var remoteCs = profile.RemoteDatabase is { } rdb
+            ? ConnectionStringBuilder.Build(rdb.Host, rdb.Port, rdb.Name, rdb.Username, rdb.Password)
+            : null;
+        Sync = new SyncService(cs, remoteCs);
 
         // Migrate schema.
         try

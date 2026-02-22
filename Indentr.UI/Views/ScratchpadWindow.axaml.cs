@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Indentr.Core.Interfaces;
 using Indentr.Core.Models;
 
@@ -6,6 +7,14 @@ namespace Indentr.UI.Views;
 
 public partial class ScratchpadWindow : Window
 {
+    private static readonly List<ScratchpadWindow> _openWindows = new();
+
+    public static async Task SaveAllAsync()
+    {
+        foreach (var win in _openWindows.ToList())
+            await win.Editor.DoSave();
+    }
+
     private Scratchpad _scratchpad = null!;
     private bool       _closing;
 
@@ -15,6 +24,8 @@ public partial class ScratchpadWindow : Window
     {
         var scratchpad = await App.Scratchpads.GetOrCreateForUserAsync(App.CurrentUser.Id);
         var win = new ScratchpadWindow();
+        _openWindows.Add(win);
+        win.Closed += (_, _) => _openWindows.Remove(win);
         win.LoadScratchpad(scratchpad);
         win.Show();
     }
@@ -32,6 +43,17 @@ public partial class ScratchpadWindow : Window
                 Editor.UpdateOriginalHash(_scratchpad.ContentHash);
             return result;
         };
+    }
+
+    // ── Keyboard shortcuts ────────────────────────────────────────────────────
+
+    private async void OnKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.S && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Shift))
+        {
+            e.Handled = true;
+            await MainWindow.TriggerSyncSaveAsync();
+        }
     }
 
     // ── Close: cancel → save → re-close ─────────────────────────────────────
