@@ -30,6 +30,10 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         "kanban_boards", "kanban_columns", "kanban_cards"
     ];
 
+    // Subtract this buffer from the pull watermark so rows written in the milliseconds
+    // around SELECT NOW() are re-checked even if the remote clock drifted slightly.
+    private static readonly TimeSpan PullSafetyBuffer = TimeSpan.FromSeconds(30);
+
     // ── ISyncService ─────────────────────────────────────────────────────────
 
     public async Task<DateTimeOffset> GetLastSyncedAtAsync()
@@ -52,6 +56,17 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
             "UPDATE sync_state SET last_synced_at = @ts WHERE id = 1", conn);
         cmd.Parameters.AddWithValue("ts", timestamp.UtcDateTime);
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    // Query the remote server's current time so the watermark is in the same clock
+    // domain as remote updated_at values, making NTP drift between machines irrelevant.
+    private static async Task<DateTimeOffset> GetRemoteClockAsync(NpgsqlConnection remote)
+    {
+        await using var cmd = new NpgsqlCommand("SELECT NOW()", remote);
+        var result = await cmd.ExecuteScalarAsync();
+        return result is DateTime dt
+            ? new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc))
+            : DateTimeOffset.UtcNow; // fallback; can't really happen
     }
 
     public async Task<SyncResult> SyncOnceAsync()
@@ -89,8 +104,9 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         }
 
         // 4. Pull remote changes to local.
-        // Capture the start time before fetching the filter watermark so that anything
-        // modified on remote while this cycle runs is included in the next sync's window.
+        // Use the remote's clock for the watermark so last_synced_at and remote
+        // updated_at values live in the same clock domain, eliminating NTP-drift data loss.
+        // syncStartedAt is initialised here as a fallback; GetRemoteClockAsync overwrites it.
         var syncStartedAt = DateTimeOffset.UtcNow;
         try
         {
@@ -99,6 +115,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
             await using var remote = new NpgsqlConnection(_remoteCs);
             await local.OpenAsync();
             await remote.OpenAsync();
+            syncStartedAt = await GetRemoteClockAsync(remote);
             await PullAsync(local, remote, lastSyncedAt);
         }
         catch (Exception ex)
@@ -128,6 +145,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     private static async Task PushAsync(
         NpgsqlConnection local, NpgsqlConnection remote, string localCs, string remoteCs)
     {
+        await DeduplicateSyncLogAsync(local);
         var entries = await ReadPendingSyncLogAsync(local);
         if (entries.Count == 0) return;
 
@@ -175,6 +193,27 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         }
 
         await DeleteSyncLogEntriesAsync(local, processed);
+    }
+
+    // For each (entity_type, entity_id), discard every INSERT/UPDATE entry that is
+    // superseded by a later INSERT/UPDATE for the same entity. DELETE entries are
+    // left untouched — they are always meaningful. This is safe because the push
+    // phase already reads the entity's *current* row from the local DB for upserts,
+    // so intermediate UPDATE entries carry no additional information.
+    private static async Task DeduplicateSyncLogAsync(NpgsqlConnection local)
+    {
+        await using var cmd = new NpgsqlCommand(
+            @"DELETE FROM sync_log
+              WHERE operation IN ('INSERT', 'UPDATE')
+                AND EXISTS (
+                    SELECT 1 FROM sync_log sl2
+                    WHERE sl2.entity_type = sync_log.entity_type
+                      AND sl2.entity_id   = sync_log.entity_id
+                      AND sl2.operation   IN ('INSERT', 'UPDATE')
+                      AND sl2.id          > sync_log.id
+                )",
+            local);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     private static async Task<List<SyncLogEntry>> ReadPendingSyncLogAsync(NpgsqlConnection local)
@@ -550,13 +589,18 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     private static async Task PullAsync(
         NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset lastSyncedAt)
     {
+        // Shift the pull filter back by PullSafetyBuffer so rows written in the
+        // milliseconds around SELECT NOW() are re-checked on each sync cycle.
+        // lastSyncedAt is kept for conflict detection — only the query filter uses the buffer.
+        var safetyFilterSince = lastSyncedAt - PullSafetyBuffer;
+
         // Process in FK dependency order so referenced rows exist before referencing ones.
         await PullUsersAsync(local, remote);
-        await PullNotesAsync(local, remote, lastSyncedAt);
-        await PullScratchpadsAsync(local, remote, lastSyncedAt);
-        await PullKanbanBoardsAsync(local, remote, lastSyncedAt);
-        await PullKanbanColumnsAsync(local, remote, lastSyncedAt);
-        await PullKanbanCardsAsync(local, remote, lastSyncedAt);
+        await PullNotesAsync(local, remote, lastSyncedAt, safetyFilterSince);
+        await PullScratchpadsAsync(local, remote, safetyFilterSince);
+        await PullKanbanBoardsAsync(local, remote, safetyFilterSince);
+        await PullKanbanColumnsAsync(local, remote, safetyFilterSince);
+        await PullKanbanCardsAsync(local, remote, safetyFilterSince);
         await PullRemoteDeletesAsync(local, remote, lastSyncedAt);
     }
 
@@ -587,9 +631,11 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     }
 
     private static async Task PullNotesAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset lastSyncedAt)
+        NpgsqlConnection local, NpgsqlConnection remote,
+        DateTimeOffset lastSyncedAt, DateTimeOffset safetyFilterSince)
     {
-        // Fetch all notes modified on remote since the last sync.
+        // Fetch all notes modified on remote since (lastSyncedAt - PullSafetyBuffer).
+        // The wider window catches rows written in the milliseconds around SELECT NOW().
         var remoteNotes = new List<RemoteNote>();
         await using (var cmd = new NpgsqlCommand(
             @"SELECT id, parent_id, is_root, title, content, content_hash,
@@ -597,7 +643,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
               FROM notes WHERE updated_at > @since",
             remote))
         {
-            cmd.Parameters.AddWithValue("since", lastSyncedAt.UtcDateTime);
+            cmd.Parameters.AddWithValue("since", safetyFilterSince.UtcDateTime);
             await using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
                 remoteNotes.Add(new RemoteNote(
@@ -623,22 +669,34 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
 
             if (raw is null)
             {
-                // Note is new from remote — insert it.
+                // Genuinely new on remote → insert.
                 await InsertNoteFromRemoteAsync(local, rn);
                 parentIdFixes.Add((rn.Id, rn.ParentId));
             }
             else
             {
                 var localUpdatedAt = (DateTime)raw;
-                if (localUpdatedAt <= lastSyncedAt.UtcDateTime)
+                if (rn.UpdatedAt <= lastSyncedAt.UtcDateTime)
                 {
-                    // Local copy is unchanged since last sync — apply remote changes.
+                    // Buffer-overlap re-pull: this row was already covered by a previous sync.
+                    // If local is still unchanged, update idempotently.
+                    // If local has changed since then, local wins — skip (next push delivers it).
+                    if (localUpdatedAt <= lastSyncedAt.UtcDateTime)
+                    {
+                        await UpdateNoteFromRemoteAsync(local, rn);
+                        parentIdFixes.Add((rn.Id, rn.ParentId));
+                    }
+                    // else: local is newer — no conflict sibling; push will reconcile.
+                }
+                else if (localUpdatedAt <= lastSyncedAt.UtcDateTime)
+                {
+                    // Remote is genuinely new, local is unchanged since last sync → update.
                     await UpdateNoteFromRemoteAsync(local, rn);
                     parentIdFixes.Add((rn.Id, rn.ParentId));
                 }
                 else
                 {
-                    // Both sides modified — keep local, create a [CONFLICT] sibling.
+                    // Both sides modified since last sync → real conflict sibling.
                     await CreateConflictNoteAsync(local, rn);
                 }
             }
@@ -756,12 +814,12 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     // These entities rarely conflict and don't have a natural "sibling" for a conflict copy.
 
     private static async Task PullScratchpadsAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset lastSyncedAt)
+        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset safetyFilterSince)
     {
         await using var cmd = new NpgsqlCommand(
             "SELECT id, user_id, content, content_hash, updated_at FROM scratchpads WHERE updated_at > @since",
             remote);
-        cmd.Parameters.AddWithValue("since", lastSyncedAt.UtcDateTime);
+        cmd.Parameters.AddWithValue("since", safetyFilterSince.UtcDateTime);
         await using var r = await cmd.ExecuteReaderAsync();
         var rows = new List<(Guid Id, Guid UserId, string Content, string Hash, DateTime UpdatedAt)>();
         while (await r.ReadAsync())
@@ -789,12 +847,12 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     }
 
     private static async Task PullKanbanBoardsAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset lastSyncedAt)
+        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset safetyFilterSince)
     {
         await using var cmd = new NpgsqlCommand(
             "SELECT id, title, owner_id, created_at, updated_at FROM kanban_boards WHERE updated_at > @since",
             remote);
-        cmd.Parameters.AddWithValue("since", lastSyncedAt.UtcDateTime);
+        cmd.Parameters.AddWithValue("since", safetyFilterSince.UtcDateTime);
         await using var r = await cmd.ExecuteReaderAsync();
         var rows = new List<(Guid Id, string Title, Guid OwnerId, DateTime CreatedAt, DateTime UpdatedAt)>();
         while (await r.ReadAsync())
@@ -820,12 +878,12 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     }
 
     private static async Task PullKanbanColumnsAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset lastSyncedAt)
+        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset safetyFilterSince)
     {
         await using var cmd = new NpgsqlCommand(
             "SELECT id, board_id, title, sort_order, updated_at FROM kanban_columns WHERE updated_at > @since",
             remote);
-        cmd.Parameters.AddWithValue("since", lastSyncedAt.UtcDateTime);
+        cmd.Parameters.AddWithValue("since", safetyFilterSince.UtcDateTime);
         await using var r = await cmd.ExecuteReaderAsync();
         var rows = new List<(Guid Id, Guid BoardId, string Title, int SortOrder, DateTime UpdatedAt)>();
         while (await r.ReadAsync())
@@ -861,13 +919,13 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     }
 
     private static async Task PullKanbanCardsAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset lastSyncedAt)
+        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset safetyFilterSince)
     {
         await using var cmd = new NpgsqlCommand(
             @"SELECT id, column_id, title, note_id, sort_order, created_at, updated_at
               FROM kanban_cards WHERE updated_at > @since",
             remote);
-        cmd.Parameters.AddWithValue("since", lastSyncedAt.UtcDateTime);
+        cmd.Parameters.AddWithValue("since", safetyFilterSince.UtcDateTime);
         await using var r = await cmd.ExecuteReaderAsync();
         var rows = new List<(Guid Id, Guid ColumnId, string Title, Guid? NoteId, int SortOrder, DateTime CreatedAt, DateTime UpdatedAt)>();
         while (await r.ReadAsync())

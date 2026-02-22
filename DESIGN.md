@@ -817,7 +817,7 @@ Two new tables are added to the **local** database by Migration 005:
 
 #### `sync_log`
 
-Tracks every INSERT, UPDATE, and DELETE on entity tables via database triggers. Consumed by `SyncService` to know what to push to the remote. Entries are deleted from this table after they have been confirmed on the remote.
+Tracks every INSERT, UPDATE, and DELETE on entity tables via database triggers. Consumed by `SyncService` to know what to push to the remote. Before each push, redundant `INSERT`/`UPDATE` entries for the same entity are collapsed to the most recent one (since the push always reads the entity's current state from the local DB anyway). Entries are deleted from this table after they have been confirmed on the remote.
 
 | Column        | Type           | Notes |
 |---------------|----------------|-------|
@@ -852,24 +852,25 @@ The function uses `TG_TABLE_NAME` as `entity_type`, so one function handles all 
 
 For `attachments`, the existing `trg_attachment_lo_cleanup` (BEFORE DELETE) is unaffected — the sync trigger fires AFTER and is independent.
 
-### Sync Cycle (not yet implemented — see TODO)
+### Sync Cycle
 
-The planned `SyncService` will execute the following steps:
+`SyncService` executes the following steps on each cycle:
 
 1. **Connect to remote** — if unreachable, log failure to the status bar and exit the cycle gracefully. No writes are attempted.
 2. **Run remote migrations** — ensure the remote schema is up to date (same `DatabaseMigrator`, remote connection string).
-3. **Push phase** — read all `sync_log` entries in `id` order. For each:
+3. **Push phase** — before reading entries, deduplicate `sync_log`: for each `(entity_type, entity_id)` pair, any `INSERT`/`UPDATE` entries that are superseded by a later `INSERT`/`UPDATE` for the same entity are deleted. `DELETE` entries are left untouched. This collapses bursts of rapid edits (e.g. 10 auto-saves) into a single row before any network I/O begins. Then read the remaining `sync_log` entries in `id` order. For each:
    - `INSERT` / `UPDATE`: read the full entity row from local, upsert it on remote.
    - `DELETE`: delete the row from remote (ignore if already gone).
    - Users referenced by `owner_id` / `created_by` are upserted on remote before any note that references them.
    - Attachment bytes are transferred via `lo_get` / `lo_from_bytea` (files are always uploaded to keep the remote the one true copy).
    - After confirming success, delete the sync_log entry.
-4. **Pull phase** — query remote for all entity rows with `updated_at > last_synced_at`. For each:
+4. **Pull phase** — query the remote's current clock (`SELECT NOW()`) to use as the new watermark. Pull all entity rows where `updated_at > last_synced_at - 30s` (the 30-second safety buffer re-checks rows written in the milliseconds around `SELECT NOW()`, guarding against sub-second clock races). For each:
    - If the row does not exist locally: insert it.
    - If the row exists locally and has not changed since `last_synced_at`: update it.
+   - If the row was in the buffer overlap window (its `updated_at ≤ last_synced_at`) and local is newer, skip silently — the next push will deliver the local version.
    - If the row exists locally and **has** changed since `last_synced_at` (both sides modified): conflict. Create a `[CONFLICT] title (by user on timestamp)` sibling note (same resolution as the existing hash-based conflict path).
    - Remote deletes are detected by comparing remote UUID sets to local UUID sets; entities present locally but absent remotely (and with no local INSERT in `sync_log`) are deleted locally.
-5. **Update `sync_state`** — set `last_synced_at = NOW()`.
+5. **Update `sync_state`** — set `last_synced_at` to the remote clock value captured at the start of step 4. Using the remote's clock (not the local machine's `NOW()`) keeps `last_synced_at` and remote `updated_at` values in the same clock domain, so NTP drift between machines cannot silently drop rows.
 
 ### Conflict Rules
 
@@ -885,7 +886,7 @@ The planned `SyncService` will execute the following steps:
 
 Applying remote changes locally will fire the sync_log triggers, generating new sync_log entries. On the following push phase these entries result in upserts against the remote — which are no-ops (remote already has the same data). This is harmless and avoids the complexity of disabling triggers during pull.
 
-### UI (not yet implemented — see TODO)
+### UI
 
 - **Sync status bar** — a single-line strip at the bottom of the Main Form showing the last sync outcome (`Synced at 14:32`, `Offline`, `Sync failed: …`).
 - **Sync button** — triggers an immediate sync cycle.

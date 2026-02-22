@@ -41,6 +41,6 @@
 
 ### Nice-to-haves / later
 - [ ] Lazy attachment download — skip byte transfer on pull, download on first open; needs a "not yet downloaded" flag or a local LO stub
-- [ ] Deduplicate consecutive sync_log entries for the same entity (e.g. 10 rapid UPDATEs → collapse to one) to reduce push overhead
-- [ ] Handle clock skew between local and remote (NTP drift can cause `updated_at > last_synced_at` to miss rows)
+- [x] Deduplicate consecutive sync_log entries for the same entity (e.g. 10 rapid UPDATEs → collapse to one) to reduce push overhead
+- [x] Handle clock skew between local and remote (NTP drift can cause `updated_at > last_synced_at` to miss rows)
 - [ ] Expose `last_synced_at` in the profile picker for visibility
