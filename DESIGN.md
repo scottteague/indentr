@@ -115,6 +115,7 @@ The editor **renders** the Markdown with live visual styling so the user sees fo
 | Plain Text    | Raw text, no syntax. |
 | Bullet Points | `- item` with indentation (`  - nested`). Infinitely nestable. |
 | In-App Links  | `[link text](note:UUID)` — internal note reference. |
+| Kanban Links  | `[link text](kanban:UUID)` — opens a kanban board window. |
 | External Links| `[link text](https://...)` — standard URL. |
 
 ### Toolbar Buttons
@@ -129,6 +130,7 @@ Each button wraps/unwraps the selected text with Markdown syntax. Formatting is 
 | **Underline**    | `_selected text_`         | Underlined text |
 | **Link**         | `[selected text](target)` | Clickable link (prompts for target) |
 | **New Child Note** | Creates a new note and inserts an in-app link | See below |
+| **📋 Board**     | Creates a kanban board and inserts a kanban link | See [Kanban Boards](#kanban-boards) |
 
 ### Attachment Bar
 
@@ -165,8 +167,9 @@ The editor applies custom rendering on top of standard Markdown:
 | `__text__` (underscores)| **Red-colored** text (not bold) |
 | `*text*`        | italic text |
 | `_text_`        | Underlined text (not italic) |
-| `[text](note:UUID)`  | Clickable in-app link |
-| `[text](http...)`    | Clickable external link |
+| `[text](note:UUID)`   | Clickable in-app note link (blue underline) |
+| `[text](kanban:UUID)` | Clickable kanban board link (purple underline) |
+| `[text](http...)`    | Clickable external link (darker blue underline) |
 
 > **Key deviation from standard Markdown:** `__text__` is rendered as red, not bold. This is an intentional Organiz-specific rendering rule.
 
@@ -176,6 +179,7 @@ The editor applies custom rendering on top of standard Markdown:
 |------------------------------------|--------|
 | Link target starts with `http`     | Opens in the system's default external browser. |
 | Link target starts with `note:`    | Opens a new **Notes Form** displaying the linked note (by UUID). |
+| Link target starts with `kanban:`  | Opens the **Kanban Window** for the referenced board (by UUID). If the window is already open, it is brought to the front. |
 
 ---
 
@@ -223,6 +227,36 @@ The editor applies custom rendering on top of standard Markdown:
 
 Large object cleanup is handled by the `trg_attachment_lo_cleanup` trigger (`BEFORE DELETE`), which calls `lo_unlink(OLD.lo_oid)`. This fires for both explicit deletes and cascades from note deletion, preventing orphaned large objects in `pg_largeobject`.
 
+#### `kanban_boards`
+
+| Column       | Type           | Notes |
+|--------------|----------------|-------|
+| `id`         | `UUID` PK      | Auto-generated. |
+| `title`      | `TEXT`         | Board display name. |
+| `owner_id`   | `UUID` FK      | References `users.id`. `ON DELETE CASCADE`. |
+| `created_at` | `TIMESTAMPTZ`  | Row creation time. |
+| `updated_at` | `TIMESTAMPTZ`  | Last modification time. |
+
+#### `kanban_columns`
+
+| Column       | Type           | Notes |
+|--------------|----------------|-------|
+| `id`         | `UUID` PK      | Auto-generated. |
+| `board_id`   | `UUID` FK      | References `kanban_boards.id`. `ON DELETE CASCADE`. |
+| `title`      | `TEXT`         | Column header label. |
+| `sort_order` | `INTEGER`      | Display order among the board's columns. |
+
+#### `kanban_cards`
+
+| Column       | Type           | Notes |
+|--------------|----------------|-------|
+| `id`         | `UUID` PK      | Auto-generated. |
+| `column_id`  | `UUID` FK      | References `kanban_columns.id`. `ON DELETE CASCADE`. |
+| `title`      | `TEXT`         | Card display text. |
+| `note_id`    | `UUID` FK NULL | References `notes.id`. `ON DELETE SET NULL` — the card survives if its linked note is deleted. |
+| `sort_order` | `INTEGER`      | Display order within the column. |
+| `created_at` | `TIMESTAMPTZ`  | Row creation time. |
+
 #### `scratchpads`
 
 | Column         | Type           | Notes |
@@ -239,6 +273,8 @@ Large object cleanup is handled by the `trg_attachment_lo_cleanup` trigger (`BEF
 - `notes.search_vector` — GIN index for full-text search.
 - `notes.(created_by) WHERE is_root = TRUE` — partial unique index; enforces one root per user (replaces the old single-root index).
 - `attachments.note_id` — for loading all attachments belonging to a note.
+- `kanban_columns.board_id` — for loading all columns of a board.
+- `kanban_cards.column_id` — for loading all cards within a column.
 
 ### Content Format (Raw Markdown)
 
@@ -427,6 +463,94 @@ See [Attachment Bar](#attachment-bar) under NoteEditorControl.
 
 ---
 
+## Kanban Boards
+
+Any note can embed a link to a kanban board using the `kanban:UUID` link scheme. Boards are independent of the note tree — they are not notes and do not appear in the tree browser.
+
+### Creating a Board
+
+Click the **📋 Board** button in the `NoteEditorControl` toolbar (available when a note is loaded; disabled for the scratchpad):
+
+1. An input dialog prompts for the board title.
+2. A new board is created in the database.
+3. A `[title](kanban:UUID)` link is inserted at the cursor position in the current note.
+4. The **Kanban Window** opens immediately for the new board.
+
+### Opening a Board
+
+Clicking a `[text](kanban:UUID)` link in any note opens the **Kanban Window** for that board. If the window is already open, it is brought to the front rather than opening a duplicate.
+
+### Kanban Window
+
+The Kanban Window is a standalone, non-modal window.
+
+| Area           | Description |
+|----------------|-------------|
+| Board title    | Editable TextBox at the top. Saved to the database on focus-out. |
+| + Column       | Button in the top bar. Prompts for a title and appends a new column. |
+| Hint bar       | One-line reminder of keyboard shortcuts. |
+| Column area    | Horizontally scrollable list of column panels. |
+
+#### Columns
+
+Each column panel is 230 px wide and contains:
+
+- An editable title TextBox (saved on focus-out).
+- A scrollable list of card controls.
+- A **× delete** button in the header — confirms before deleting (along with all its cards).
+- A **+ Add Card** button at the bottom — prompts for a title via the input dialog.
+
+#### Cards
+
+Each card is a clickable `Border` control showing the card title. If the card is linked to a note, a 🔗 indicator is appended to the title.
+
+- **Click** — selects the card (highlighted in blue).
+- **Double-click** — opens the rename dialog.
+- **Right-click** — context menu:
+
+| Action | Behaviour |
+|--------|-----------|
+| **Rename** | Input dialog, pre-filled with the current title. |
+| **Open Linked Note** | Opens the linked note in a Notes Form. *(Only shown when a note is linked.)* |
+| **Unlink Note** | Clears the `note_id` reference. *(Only shown when a note is linked.)* |
+| **Link to Note…** | Opens the **Note Picker Dialog** to search for and attach a note. *(Only shown when no note is linked.)* |
+| **Delete Card** | Confirmation dialog, then permanent deletion. |
+
+#### Keyboard Navigation
+
+Keys are handled at the window level. They are ignored when a column title TextBox has keyboard focus.
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move card selection up or down within the current column. |
+| `←` / `→` | Move card selection to the adjacent column (matching position where possible). |
+| `Shift+↑` / `Shift+↓` | Move the selected card up or down within its column. Persisted immediately. |
+| `Shift+←` / `Shift+→` | Move the selected card to the adjacent column (appended at the end). Persisted immediately. |
+| `F2` or `Enter` | Rename the selected card. |
+| `Delete` | Delete the selected card (with confirmation). |
+
+### Note Picker Dialog
+
+Used when choosing a note to link to a kanban card. It is a modal dialog with:
+
+- A search TextBox — press `Enter` to run the search.
+- A results ListBox — displays note titles from a full-text search.
+- **Link Note** button (enabled when a note is selected) and **Cancel**.
+
+Returns the selected `Note` object to the caller; returns `null` if cancelled.
+
+### Data Model
+
+Boards, columns, and cards are stored in three dedicated tables (`kanban_boards`, `kanban_columns`, `kanban_cards`). Deleting a board cascades to its columns and cards. Cards reference notes via a nullable `note_id` FK with `ON DELETE SET NULL`, so cards survive note deletion (the 🔗 indicator simply disappears).
+
+Sort order is maintained as an integer `sort_order` column. After any move operation, the affected column(s) are fully renumbered (`0, 1, 2, …`) in a small batch update.
+
+### Swappable Interface
+
+Board/column/card persistence is behind the `IKanbanRepository` interface in `Organiz.Core`, wired to `KanbanRepository` (`Organiz.Data`) in `App.axaml.cs`. An alternative backend can be substituted by implementing the interface.
+
+---
+
 ## Configuration File
 
 Organiz stores local configuration in a JSON file at:
@@ -582,8 +706,8 @@ Organiz.sln
 
 | Project         | Responsibilities |
 |-----------------|------------------|
-| `Organiz.Core`  | Note, User, Scratchpad, AttachmentMeta models; repository/store interfaces; conflict resolution logic; export logic |
-| `Organiz.Data`  | Npgsql-based repository implementations; schema migrations (run on startup) |
+| `Organiz.Core`  | Note, User, Scratchpad, AttachmentMeta, KanbanBoard/Column/Card models; repository/store interfaces; conflict resolution logic; export logic |
+| `Organiz.Data`  | Npgsql-based repository implementations (including `KanbanRepository`); schema migrations (run on startup) |
 | `Organiz.UI`    | Avalonia App, all Forms and Controls, ViewModels, config file management |
 | `Organiz.Tests` | Tests for Core logic and Data layer |
 

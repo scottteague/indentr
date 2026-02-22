@@ -40,9 +40,10 @@ public class MarkdownColorizer(FontFamily monoFamily, FontFamily proportionalFam
 
     // ── Brushes ───────────────────────────────────────────────────────────────
 
-    private static readonly IBrush RedBrush      = Brushes.Red;
-    private static readonly IBrush NoteLinkBrush = new SolidColorBrush(Color.FromRgb(0,  102, 204));
-    private static readonly IBrush ExtLinkBrush  = new SolidColorBrush(Color.FromRgb(30,  30, 200));
+    private static readonly IBrush RedBrush       = Brushes.Red;
+    private static readonly IBrush NoteLinkBrush  = new SolidColorBrush(Color.FromRgb(0,  102, 204));
+    private static readonly IBrush KanbanBrush    = new SolidColorBrush(Color.FromRgb(128,  0, 200));
+    private static readonly IBrush ExtLinkBrush   = new SolidColorBrush(Color.FromRgb(30,  30, 200));
     private static readonly IBrush CodeBg     = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128));
     private static readonly IBrush GreenBrush = new SolidColorBrush(Color.FromRgb(0, 160, 0));
 
@@ -166,8 +167,15 @@ public class MarkdownColorizer(FontFamily monoFamily, FontFamily proportionalFam
     {
         foreach (Match m in Link.Matches(text))
         {
-            var isNote = m.Groups[2].Value.StartsWith("note:", StringComparison.OrdinalIgnoreCase);
-            var brush  = isNote ? NoteLinkBrush : ExtLinkBrush;
+            var target = m.Groups[2].Value;
+            IBrush brush;
+            if (target.StartsWith("note:", StringComparison.OrdinalIgnoreCase))
+                brush = NoteLinkBrush;
+            else if (target.StartsWith("kanban:", StringComparison.OrdinalIgnoreCase))
+                brush = KanbanBrush;
+            else
+                brush = ExtLinkBrush;
+
             ChangeLinePart(line.Offset + m.Index, line.Offset + m.Index + m.Length, el =>
             {
                 el.TextRunProperties.SetForegroundBrush(brush);

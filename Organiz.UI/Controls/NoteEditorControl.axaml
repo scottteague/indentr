@@ -12,6 +12,7 @@
             <Button x:Name="UnderlineButton"    Content="U"            Width="32"          ToolTip.Tip="Underline (_text_)"                  Click="OnUnderlineClick" />
             <Button x:Name="LinkButton"         Content="🔗"           Width="32"          ToolTip.Tip="Insert link"                         Click="OnLinkClick" />
             <Button x:Name="NewChildNoteButton" Content="+ Note"       Width="72"          ToolTip.Tip="Create child note from selection"    Click="OnNewChildNoteClick" IsEnabled="False" />
+            <Button x:Name="NewBoardButton"     Content="📋 Board"    Width="80"          ToolTip.Tip="Create a new kanban board"           Click="OnNewBoardClick"     IsEnabled="False" />
             <Separator Width="1" />
             <Button x:Name="SaveButton"         Content="Save"         Width="50"          ToolTip.Tip="Save (Ctrl+S)"                       Click="OnSaveClick" />
             <Button x:Name="ExportButton"       Content="Export…"      Width="70"          ToolTip.Tip="Export to Markdown"                  Click="OnExportClick" />

@@ -65,6 +65,7 @@ public partial class NoteEditorControl : UserControl
         Editor.Text             = note.Content;
         Editor.IsReadOnly       = false;
         AttachmentBar.IsVisible = true;
+        NewBoardButton.IsEnabled = true;
         _ = LoadAttachmentsAsync(note.Id);
 
         // Privacy checkbox: visible for regular notes editable by their creator; hidden for root.
@@ -83,8 +84,9 @@ public partial class NoteEditorControl : UserControl
 
         TitleRow.IsVisible      = false;
         PrivacyRow.IsVisible    = false;
-        AttachmentBar.IsVisible = false;
-        Editor.Text             = scratchpad.Content;
+        AttachmentBar.IsVisible  = false;
+        NewBoardButton.IsEnabled = false;
+        Editor.Text              = scratchpad.Content;
         Editor.IsReadOnly       = false;
         UpdateNewChildNoteButton();
     }
@@ -233,6 +235,11 @@ public partial class NoteEditorControl : UserControl
                 if (Guid.TryParse(target["note:".Length..], out var noteId))
                     InAppLinkClicked?.Invoke(noteId);
             }
+            else if (target.StartsWith("kanban:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Guid.TryParse(target["kanban:".Length..], out var boardId))
+                    _ = KanbanWindow.OpenAsync(boardId);
+            }
             else
             {
                 ExternalLinkClicked?.Invoke(target);
@@ -273,6 +280,20 @@ public partial class NoteEditorControl : UserControl
         if (newNote is null) return;
 
         ReplaceSelection($"[{title}](note:{newNote.Id})");
+    }
+
+    private async void OnNewBoardClick(object? sender, RoutedEventArgs e)
+    {
+        if (_noteId is null) return;
+        var window = TopLevel.GetTopLevel(this) as Window;
+        if (window is null) return;
+
+        var title = await InputDialog.ShowAsync(window, "New Kanban Board", "Board title:");
+        if (string.IsNullOrWhiteSpace(title)) return;
+
+        var board = await App.Kanban.CreateBoardAsync(title, _userId);
+        ReplaceSelection($"[{title}](kanban:{board.Id})");
+        await KanbanWindow.OpenAsync(board.Id);
     }
 
     private async void OnSaveClick(object? sender, RoutedEventArgs e) => await DoSave();

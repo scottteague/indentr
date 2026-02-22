@@ -1,0 +1,18 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Organiz.UI.Views.InputDialog"
+             Icon="avares://Organiz.UI/Assets/icon.png"
+        Title="Input"
+        Width="380" Height="150"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+    <StackPanel Margin="16" Spacing="12">
+        <TextBlock x:Name="PromptText" Text="Enter value:" />
+        <TextBox x:Name="ValueBox" KeyDown="OnValueBoxKeyDown" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Content="OK"     Click="OnOk" />
+            <Button Content="Cancel" Click="OnCancel" />
+        </StackPanel>
+    </StackPanel>
+</Window>

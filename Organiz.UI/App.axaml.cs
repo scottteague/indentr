@@ -17,6 +17,7 @@ public partial class App : Application
     public static IUserRepository     Users          { get; private set; } = null!;
     public static IScratchpadRepository Scratchpads  { get; private set; } = null!;
     public static IAttachmentStore    Attachments    { get; private set; } = null!;
+    public static IKanbanRepository   Kanban         { get; private set; } = null!;
     public static User                CurrentUser    { get; private set; } = null!;
     public static DatabaseProfile     CurrentProfile { get; private set; } = null!;
 
@@ -68,6 +69,7 @@ public partial class App : Application
         Users       = new UserRepository(cs);
         Scratchpads = new ScratchpadRepository(cs);
         Attachments = new PostgresAttachmentStore(cs);
+        Kanban      = new KanbanRepository(cs);
 
         // Migrate schema.
         try
