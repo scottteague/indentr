@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Indentr.Data;
 using Indentr.UI.Config;
 
 namespace Indentr.UI.Views;
@@ -9,6 +10,12 @@ public partial class ProfilePickerWindow : Window
     private readonly AppConfig _config;
     private readonly bool _isStartupMode;
     private DatabaseProfile? _result;
+    private readonly Dictionary<string, string?> _syncLines = new();
+
+    private record ProfileListItem(string DisplayName, string? SyncLine)
+    {
+        public bool HasSyncLine => SyncLine is not null;
+    }
 
     // ── Static factory methods ────────────────────────────────────────────────
 
@@ -49,27 +56,73 @@ public partial class ProfilePickerWindow : Window
         }
 
         RefreshList();
+        _ = LoadSyncLinesAsync();
 
         // First-ever run: no profiles yet — open the Add dialog immediately.
         if (isStartupMode && config.Profiles.Count == 0)
             _ = OpenAddDialogAsync();
     }
 
+    // ── Sync info loading ─────────────────────────────────────────────────────
+
+    // Queries each profile's local sync_state and re-renders the list once done.
+    // Runs fire-and-forget from the constructor; local DB reads are fast so the
+    // sync lines appear almost immediately after the window opens.
+    private async Task LoadSyncLinesAsync()
+    {
+        foreach (var profile in _config.Profiles)
+        {
+            if (profile.RemoteDatabase is null) continue;
+            _syncLines[profile.Name] = await ReadSyncLineAsync(profile);
+        }
+        RefreshList();
+    }
+
+    private static async Task<string?> ReadSyncLineAsync(DatabaseProfile profile)
+    {
+        try
+        {
+            var cs  = ConnectionStringBuilder.Build(
+                profile.Database.Host, profile.Database.Port,
+                profile.Database.Name, profile.Database.Username, profile.Database.Password);
+            var svc = new SyncService(cs, remoteConnectionString: null);
+            var ts  = await svc.GetLastSyncedAtAsync();
+            if (ts == DateTimeOffset.MinValue) return "Never synced";
+            var local = ts.ToLocalTime();
+            return local.Date == DateTimeOffset.Now.Date
+                ? $"Synced today at {local:HH:mm}"
+                : $"Synced {local:d MMM} at {local:HH:mm}";
+        }
+        catch
+        {
+            return null; // DB unreachable — omit sync line rather than showing an error
+        }
+    }
+
     // ── List management ───────────────────────────────────────────────────────
 
     private void RefreshList()
     {
-        var items = _config.Profiles
-            .Select(p => !_isStartupMode && p.Name == App.CurrentProfile?.Name
+        // Preserve the current selection across refreshes (e.g. after async sync-line load).
+        var selectedName = ProfileList.SelectedIndex >= 0
+            ? _config.Profiles[ProfileList.SelectedIndex].Name
+            : null;
+
+        var items = _config.Profiles.Select(p =>
+        {
+            var displayName = !_isStartupMode && p.Name == App.CurrentProfile?.Name
                 ? $"{p.Name}  ✓"
-                : p.Name)
-            .ToList();
+                : p.Name;
+            _syncLines.TryGetValue(p.Name, out var syncLine);
+            return new ProfileListItem(displayName, syncLine);
+        }).ToList();
 
         ProfileList.ItemsSource = null;
         ProfileList.ItemsSource = items;
 
-        var lastIdx = _config.Profiles.FindIndex(p => p.Name == _config.LastProfile);
-        ProfileList.SelectedIndex = lastIdx >= 0 ? lastIdx : (_config.Profiles.Count > 0 ? 0 : -1);
+        var restoreName = selectedName ?? _config.LastProfile;
+        var idx = _config.Profiles.FindIndex(p => p.Name == restoreName);
+        ProfileList.SelectedIndex = idx >= 0 ? idx : (_config.Profiles.Count > 0 ? 0 : -1);
     }
 
     private void OnSelectionChanged(object? sender, SelectionChangedEventArgs e)

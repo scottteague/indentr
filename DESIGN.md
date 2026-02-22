@@ -621,7 +621,7 @@ The **Profile Picker** (`ProfilePickerWindow`) is a small modal that handles bot
 
 ### Behaviour
 
-- The list shows all configured profiles. In manage mode, the currently active profile is marked with ✓.
+- The list shows all configured profiles. In manage mode, the currently active profile is marked with ✓. For profiles that have a remote database configured, a dimmed sub-line shows the last sync time (e.g. `Synced today at 14:32` or `Never synced`). This is loaded asynchronously from each profile's local `sync_state` table immediately after the window opens, so it appears within milliseconds.
 - **Add** — opens `FirstRunWindow` as a modal dialog to enter a new profile name, username, and database settings. Duplicate profile names are rejected.
 - **Edit** — opens `FirstRunWindow` pre-filled with the selected profile's current settings.
 - **Delete** — confirmation dialog, then removes the profile. `lastProfile` is updated to the next available profile if the deleted one was active.

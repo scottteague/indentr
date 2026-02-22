@@ -3,7 +3,7 @@
         x:Class="Indentr.UI.Views.ProfilePickerWindow"
              Icon="avares://Indentr.UI/Assets/icon.png"
         Title="Select Profile"
-        Width="360" Height="280"
+        Width="360" Height="320"
         WindowStartupLocation="CenterScreen"
         CanResize="False">
 
@@ -18,6 +18,18 @@
             <Button x:Name="CancelButton" Content="Cancel" Click="OnCancelClicked" />
         </StackPanel>
 
-        <ListBox x:Name="ProfileList" SelectionChanged="OnSelectionChanged" />
+        <ListBox x:Name="ProfileList" SelectionChanged="OnSelectionChanged">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:CompileBindings="False">
+                    <StackPanel Margin="0,2">
+                        <TextBlock Text="{Binding DisplayName}" />
+                        <TextBlock Text="{Binding SyncLine}"
+                                   IsVisible="{Binding HasSyncLine}"
+                                   FontSize="11"
+                                   Opacity="0.55" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
     </DockPanel>
 </Window>
