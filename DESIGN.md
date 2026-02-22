@@ -505,7 +505,7 @@ Each column panel is 230 px wide and contains:
 Each card is a clickable `Border` control showing the card title. If the card is linked to a note, a 🔗 indicator is appended to the title.
 
 - **Click** — selects the card (highlighted in blue).
-- **Double-click** — opens the rename dialog.
+- **Double-click** — opens the linked note in a Notes Form. If no note is linked yet, a new note is created automatically using the card title, linked to the card, and opened immediately.
 - **Right-click** — context menu:
 
 | Action | Behaviour |
@@ -513,7 +513,8 @@ Each card is a clickable `Border` control showing the card title. If the card is
 | **Rename** | Input dialog, pre-filled with the current title. |
 | **Open Linked Note** | Opens the linked note in a Notes Form. *(Only shown when a note is linked.)* |
 | **Unlink Note** | Clears the `note_id` reference. *(Only shown when a note is linked.)* |
-| **Link to Note…** | Opens the **Note Picker Dialog** to search for and attach a note. *(Only shown when no note is linked.)* |
+| **Link to Existing Note…** | Opens the **Note Picker Dialog** to search for and attach an existing note. *(Only shown when no note is linked.)* |
+| **Create and Link New Note…** | Prompts for a title, creates a new orphan note, links it to the card, and opens it. *(Only shown when no note is linked.)* |
 | **Delete Card** | Confirmation dialog, then permanent deletion. |
 
 #### Keyboard Navigation
@@ -526,8 +527,12 @@ Keys are handled at the window level. They are ignored when a column title TextB
 | `←` / `→` | Move card selection to the adjacent column (matching position where possible). |
 | `Shift+↑` / `Shift+↓` | Move the selected card up or down within its column. Persisted immediately. |
 | `Shift+←` / `Shift+→` | Move the selected card to the adjacent column (appended at the end). Persisted immediately. |
-| `F2` or `Enter` | Rename the selected card. |
+| `F2` or `Enter` | Rename the selected card (keyboard shortcut; double-click opens the note instead). |
 | `Delete` | Delete the selected card (with confirmation). |
+
+### Input Dialog
+
+A reusable single-line text input modal used wherever a short string is needed (board title, column title, card title, note title). Pressing **Enter** or clicking **OK** confirms; **Escape** or **Cancel** dismisses without a result.
 
 ### Note Picker Dialog
 
