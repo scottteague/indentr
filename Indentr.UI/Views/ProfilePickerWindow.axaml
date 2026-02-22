@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Indentr.UI.Views.ProfilePickerWindow"
+             Icon="avares://Indentr.UI/Assets/icon.png"
+        Title="Select Profile"
+        Width="360" Height="280"
+        WindowStartupLocation="CenterScreen"
+        CanResize="False">
+
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="6" Margin="0,10,0,0">
+            <Button x:Name="AddButton"    Content="Add"    Click="OnAddClicked" />
+            <Button x:Name="EditButton"   Content="Edit"   Click="OnEditClicked"   IsEnabled="False" />
+            <Button x:Name="DeleteButton" Content="Delete" Click="OnDeleteClicked" IsEnabled="False" />
+            <Separator Width="1" Margin="4,0" />
+            <Button x:Name="ActionButton" Content="Open"   Click="OnActionClicked" IsEnabled="False" />
+            <Button x:Name="CancelButton" Content="Cancel" Click="OnCancelClicked" />
+        </StackPanel>
+
+        <ListBox x:Name="ProfileList" SelectionChanged="OnSelectionChanged" />
+    </DockPanel>
+</Window>

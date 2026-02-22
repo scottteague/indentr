@@ -1,4 +1,4 @@
-# Organiz
+# Indentr
 
 A multi-user, tree-structured note-taking app for the desktop, backed by PostgreSQL. Inspired by [Tomboy Notes](https://wiki.gnome.org/Apps/Tomboy).
 
@@ -35,23 +35,23 @@ A `docker-compose.yml` / `podman-compose.yml` is included if you want to spin up
 ### 1. Start PostgreSQL
 
 ```sh
-cp .env.example .env        # set ORGANIZ_DATA_DIR to where you want pg data stored
+cp .env.example .env        # set INDENTR_DATA_DIR to where you want pg data stored
 podman-compose up -d        # or: docker compose up -d
 ```
 
 Then create the database (one-time):
 
 ```sh
-podman exec -it organiz-db psql -U postgres -c "CREATE DATABASE organiz;"
+podman exec -it indentr-db psql -U postgres -c "CREATE DATABASE indentr;"
 ```
 
 ### 2. Build and run
 
 ```sh
-dotnet run --project Organiz.UI
+dotnet run --project Indentr.UI
 ```
 
-On first launch you'll be prompted to create a **profile** — give it a name, pick a username, and fill in the database connection details. Organiz creates the schema automatically.
+On first launch you'll be prompted to create a **profile** — give it a name, pick a username, and fill in the database connection details. Indentr creates the schema automatically.
 
 ---
 
@@ -93,14 +93,14 @@ The bottom bar of any note editor has a **📎 Attach** button. Attached files a
 
 ## Markdown rendering
 
-Organiz renders a subset of Markdown live in the editor:
+Indentr renders a subset of Markdown live in the editor:
 
 | Syntax | Renders as |
 |--------|-----------|
 | `**text**` | **Bold** |
-| `__text__` | Red text *(Organiz-specific)* |
+| `__text__` | Red text *(Indentr-specific)* |
 | `*text*` | *Italic* |
-| `_text_` | Underline *(Organiz-specific)* |
+| `_text_` | Underline *(Indentr-specific)* |
 | `` `code` `` | Inline code (monospace, shaded) |
 | ` ```block``` ` | Code block (monospace, shaded) |
 | `# Heading` … `###### Heading` | H1–H6 with scaled size |
@@ -115,11 +115,11 @@ Organiz renders a subset of Markdown live in the editor:
 ## Project structure
 
 ```
-Organiz.sln
-├── Organiz.Core/    # Models, interfaces, business logic
-├── Organiz.Data/    # PostgreSQL repositories, schema migrations
-├── Organiz.UI/      # Avalonia UI — windows, controls, config
-└── Organiz.Tests/   # Tests
+Indentr.sln
+├── Indentr.Core/    # Models, interfaces, business logic
+├── Indentr.Data/    # PostgreSQL repositories, schema migrations
+├── Indentr.UI/      # Avalonia UI — windows, controls, config
+└── Indentr.Tests/   # Tests
 ```
 
 Built with [Avalonia](https://avaloniaui.net/) and [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit). Database access via [Npgsql](https://www.npgsql.org/) (raw ADO.NET, no ORM).
@@ -132,4 +132,4 @@ For a full technical reference see [DESIGN.md](DESIGN.md).
 
 GPL v3 — see [LICENSE](LICENSE) for the full text.
 
-Copyright (C) 2024 the Organiz contributors.
+Copyright (C) 2024 the Indentr contributors.

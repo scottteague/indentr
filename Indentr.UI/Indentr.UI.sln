@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Indentr.UI", "Indentr.UI.csproj", "{7DA5BFB6-1C0E-1947-2674-72E315E53B97}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7DA5BFB6-1C0E-1947-2674-72E315E53B97}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7DA5BFB6-1C0E-1947-2674-72E315E53B97}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7DA5BFB6-1C0E-1947-2674-72E315E53B97}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7DA5BFB6-1C0E-1947-2674-72E315E53B97}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {DE5342F0-B65E-4F2F-B4BE-F85D9B116E61}
+	EndGlobalSection
+EndGlobal

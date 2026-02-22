@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Indentr.UI.Controls"
+        x:Class="Indentr.UI.Views.NotesWindow"
+             Icon="avares://Indentr.UI/Assets/icon.png"
+        Title="Note"
+        Width="800" Height="600"
+        WindowStartupLocation="CenterScreen"
+        KeyDown="OnKeyDown">
+
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_Note">
+                <MenuItem Header="_Delete Note…" Click="OnDeleteClicked" />
+            </MenuItem>
+        </Menu>
+        <controls:NoteEditorControl x:Name="Editor" />
+    </DockPanel>
+</Window>

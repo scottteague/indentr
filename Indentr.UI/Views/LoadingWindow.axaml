@@ -1,0 +1,13 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Indentr.UI.Views.LoadingWindow"
+             Icon="avares://Indentr.UI/Assets/icon.png"
+        Title="Indentr"
+        Width="300" Height="120"
+        WindowStartupLocation="CenterScreen"
+        CanResize="False">
+    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+        <TextBlock Text="Starting Indentr…" HorizontalAlignment="Center" FontSize="16" />
+        <ProgressBar IsIndeterminate="True" Width="200" />
+    </StackPanel>
+</Window>

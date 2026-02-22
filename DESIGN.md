@@ -1,8 +1,8 @@
-# Organiz - Design Document
+# Indentr - Design Document
 
 ## Overview
 
-Organiz is a note-taking application inspired by [Tomboy Notes](https://wiki.gnome.org/Apps/Tomboy). Notes are organized as an **N-Tree** data structure where any note can have unlimited children. The app is built for **multi-user** use with a trust-based identity model and conflict-safe persistence.
+Indentr is a note-taking application inspired by [Tomboy Notes](https://wiki.gnome.org/Apps/Tomboy). Notes are organized as an **N-Tree** data structure where any note can have unlimited children. The app is built for **multi-user** use with a trust-based identity model and conflict-safe persistence.
 
 ## Technology Stack
 
@@ -94,7 +94,7 @@ The Management Form opens on the **Tree Browser** tab by default. It switches to
 
 ### Window Behaviour
 
-All Organiz windows (Main Form, Notes Form, Search Form, Management Form) are **independent peers** — no window is a child or owner of another. Any window can be brought to the front at any time without restriction.
+All Indentr windows (Main Form, Notes Form, Search Form, Management Form) are **independent peers** — no window is a child or owner of another. Any window can be brought to the front at any time without restriction.
 
 ---
 
@@ -171,7 +171,7 @@ The editor applies custom rendering on top of standard Markdown:
 | `[text](kanban:UUID)` | Clickable kanban board link (purple underline) |
 | `[text](http...)`    | Clickable external link (darker blue underline) |
 
-> **Key deviation from standard Markdown:** `__text__` is rendered as red, not bold. This is an intentional Organiz-specific rendering rule.
+> **Key deviation from standard Markdown:** `__text__` is rendered as red, not bold. This is an intentional Indentr-specific rendering rule.
 
 ### Link Behavior
 
@@ -291,7 +291,7 @@ Here is a **__bold and red__** word.
     - Deeply nested bullet
 ```
 
-This is stored as-is in the `TEXT` column. No transformation needed for export — the content is already valid Markdown (with Organiz-specific rendering of `__text__` as red).
+This is stored as-is in the `TEXT` column. No transformation needed for export — the content is already valid Markdown (with Indentr-specific rendering of `__text__` as red).
 
 ---
 
@@ -420,7 +420,7 @@ Notes can be **exported to Markdown** (`.md` files).
 
 - Content is already stored as raw Markdown, so export is near-zero transformation.
 - Export a single note, or a subtree (note + all descendants).
-- **In-app links** (`[text](note:UUID)`) are converted to plain text on export (since targets may not exist outside Organiz).
+- **In-app links** (`[text](note:UUID)`) are converted to plain text on export (since targets may not exist outside Indentr).
 - **External links**, **bold**, **red** (`__text__`), **underline**, and **bullets** are already valid Markdown and exported as-is.
 - Subtree export concatenates notes with their titles as headings, maintaining hierarchy via heading levels.
 
@@ -446,7 +446,7 @@ All large object function calls require an active transaction, which each reposi
 
 ### Swappable Backend
 
-The storage layer is defined by the `IAttachmentStore` interface in `Organiz.Core`:
+The storage layer is defined by the `IAttachmentStore` interface in `Indentr.Core`:
 
 ```csharp
 Task<IReadOnlyList<AttachmentMeta>> ListForNoteAsync(Guid noteId);
@@ -455,7 +455,7 @@ Task<AttachmentMeta> StoreAsync(Guid noteId, string filename, string mimeType, S
 Task DeleteAsync(Guid attachmentId);
 ```
 
-The current implementation (`PostgresAttachmentStore` in `Organiz.Data`) can be replaced with any other backend (e.g. MinIO, local filesystem) by implementing this interface and changing the wiring in `App.axaml.cs`.
+The current implementation (`PostgresAttachmentStore` in `Indentr.Data`) can be replaced with any other backend (e.g. MinIO, local filesystem) by implementing this interface and changing the wiring in `App.axaml.cs`.
 
 ### UI
 
@@ -552,16 +552,16 @@ Sort order is maintained as an integer `sort_order` column. After any move opera
 
 ### Swappable Interface
 
-Board/column/card persistence is behind the `IKanbanRepository` interface in `Organiz.Core`, wired to `KanbanRepository` (`Organiz.Data`) in `App.axaml.cs`. An alternative backend can be substituted by implementing the interface.
+Board/column/card persistence is behind the `IKanbanRepository` interface in `Indentr.Core`, wired to `KanbanRepository` (`Indentr.Data`) in `App.axaml.cs`. An alternative backend can be substituted by implementing the interface.
 
 ---
 
 ## Configuration File
 
-Organiz stores local configuration in a JSON file at:
+Indentr stores local configuration in a JSON file at:
 
 ```
-~/.config/organiz/config.json
+~/.config/indentr/config.json
 ```
 
 Created automatically on first launch if it does not exist.
@@ -578,7 +578,7 @@ Created automatically on first launch if it does not exist.
       "database": {
         "host": "localhost",
         "port": 5432,
-        "name": "organiz",
+        "name": "indentr",
         "username": "postgres",
         "password": ""
       }
@@ -589,7 +589,7 @@ Created automatically on first launch if it does not exist.
       "database": {
         "host": "work-server",
         "port": 5432,
-        "name": "organiz",
+        "name": "indentr",
         "username": "postgres",
         "password": ""
       }
@@ -602,7 +602,7 @@ Created automatically on first launch if it does not exist.
 
 ### Profiles
 
-Each entry in `profiles` bundles a display name, an Organiz username, and a full database connection config. This allows switching between entirely independent databases (e.g. personal, work, testing) without editing the file manually.
+Each entry in `profiles` bundles a display name, an Indentr username, and a full database connection config. This allows switching between entirely independent databases (e.g. personal, work, testing) without editing the file manually.
 
 ### Legacy Migration
 
@@ -641,14 +641,14 @@ A `docker-compose.yml` (compatible with both `docker-compose` and `podman-compos
 
 ### Data Directory
 
-PostgreSQL data is stored in a **bind mount** rather than a named volume, so you control exactly where data lives on the host. The mount source is configured via the `ORGANIZ_DATA_DIR` environment variable:
+PostgreSQL data is stored in a **bind mount** rather than a named volume, so you control exactly where data lives on the host. The mount source is configured via the `INDENTR_DATA_DIR` environment variable:
 
 ```yaml
 volumes:
-  - ${ORGANIZ_DATA_DIR:-./data}:/var/lib/postgresql/data
+  - ${INDENTR_DATA_DIR:-./data}:/var/lib/postgresql/data
 ```
 
-If `ORGANIZ_DATA_DIR` is not set, it defaults to `./data` relative to `docker-compose.yml`.
+If `INDENTR_DATA_DIR` is not set, it defaults to `./data` relative to `docker-compose.yml`.
 
 ### Configuration
 
@@ -657,7 +657,7 @@ Copy `.env.example` to `.env` (gitignored) and set your preferred path:
 ```sh
 cp .env.example .env
 # then edit .env:
-ORGANIZ_DATA_DIR=/home/alice/organiz-pgdata
+INDENTR_DATA_DIR=/home/alice/indentr-pgdata
 ```
 
 `.env` is loaded automatically by both `docker-compose` and `podman-compose`. It is gitignored so personal paths are never committed. `.env.example` is committed and documents the available variables.
@@ -677,7 +677,7 @@ Trust-based, no authentication.
 
 1. Each **profile** carries its own username. On first launch (no profiles exist), the user is prompted to create a profile including a username.
 2. No password required.
-3. The username is stored in the active profile in `~/.config/organiz/config.json` and sent with all database operations to identify the user.
+3. The username is stored in the active profile in `~/.config/indentr/config.json` and sent with all database operations to identify the user.
 4. If the username does not exist in the `users` table, a new row is created automatically.
 5. Different profiles can use different usernames, allowing a single install to act as different identities against different databases.
 
@@ -685,9 +685,9 @@ Trust-based, no authentication.
 
 ## First-Run & Database Initialization
 
-On startup, Organiz checks the following in order:
+On startup, Indentr checks the following in order:
 
-1. **Profile selection** — Config is loaded from `~/.config/organiz/config.json`.
+1. **Profile selection** — Config is loaded from `~/.config/indentr/config.json`.
    - **No profiles** (first-ever launch): the **Profile Picker** opens and immediately prompts the user to add a profile (name, username, database connection). The app does not proceed until at least one profile exists.
    - **Exactly one profile**: it is used automatically — no picker is shown.
    - **Two or more profiles**: the **Profile Picker** is shown so the user can choose which database to open. The last-used profile is pre-selected.
@@ -702,19 +702,19 @@ On startup, Organiz checks the following in order:
 The solution is organized as a layered architecture:
 
 ```
-Organiz.sln
-├── Organiz.Core/          # Domain models, interfaces, business logic
-├── Organiz.Data/          # PostgreSQL data access (repositories, migrations)
-├── Organiz.UI/            # Avalonia application, forms, controls, ViewModels
-└── Organiz.Tests/         # Unit and integration tests
+Indentr.sln
+├── Indentr.Core/          # Domain models, interfaces, business logic
+├── Indentr.Data/          # PostgreSQL data access (repositories, migrations)
+├── Indentr.UI/            # Avalonia application, forms, controls, ViewModels
+└── Indentr.Tests/         # Unit and integration tests
 ```
 
 | Project         | Responsibilities |
 |-----------------|------------------|
-| `Organiz.Core`  | Note, User, Scratchpad, AttachmentMeta, KanbanBoard/Column/Card models; repository/store interfaces; conflict resolution logic; export logic |
-| `Organiz.Data`  | Npgsql-based repository implementations (including `KanbanRepository`); schema migrations (run on startup) |
-| `Organiz.UI`    | Avalonia App, all Forms and Controls, ViewModels, config file management |
-| `Organiz.Tests` | Tests for Core logic and Data layer |
+| `Indentr.Core`  | Note, User, Scratchpad, AttachmentMeta, KanbanBoard/Column/Card models; repository/store interfaces; conflict resolution logic; export logic |
+| `Indentr.Data`  | Npgsql-based repository implementations (including `KanbanRepository`); schema migrations (run on startup) |
+| `Indentr.UI`    | Avalonia App, all Forms and Controls, ViewModels, config file management |
+| `Indentr.Tests` | Tests for Core logic and Data layer |
 
 ---
 

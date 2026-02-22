@@ -1,0 +1,35 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:Indentr.Core.Models;assembly=Indentr.Core"
+        x:Class="Indentr.UI.Views.SearchWindow"
+             Icon="avares://Indentr.UI/Assets/icon.png"
+        Title="Search Notes"
+        Width="560" Height="480"
+        WindowStartupLocation="CenterScreen">
+
+    <DockPanel Margin="12">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+            <TextBox x:Name="QueryBox"
+                     Watermark="Search…"
+                     Width="400"
+                     KeyDown="OnQueryKeyDown" />
+            <Button Content="Search" Click="OnSearchClicked" />
+        </StackPanel>
+
+        <TextBlock x:Name="StatusText"
+                   DockPanel.Dock="Top"
+                   Margin="0,0,0,6"
+                   Foreground="Gray"
+                   IsVisible="False" />
+
+        <ListBox x:Name="ResultsList"
+                 SelectionMode="Single"
+                 SelectionChanged="OnResultSelected">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="models:Note">
+                    <TextBlock Text="{Binding Title}" Padding="4,2" />
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+</Window>

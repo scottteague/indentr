@@ -1,0 +1,35 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Indentr.UI.Views.KanbanWindow"
+             Icon="avares://Indentr.UI/Assets/icon.png"
+        Title="Kanban Board"
+        Width="1000" Height="680"
+        WindowStartupLocation="CenterOwner"
+        KeyDown="OnKeyDown">
+
+    <DockPanel>
+        <!-- Top toolbar: board title + add column -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal"
+                    Spacing="10" Margin="10,10,10,6">
+            <TextBox x:Name="BoardTitleBox"
+                     MinWidth="320" FontSize="18" FontWeight="Bold"
+                     Watermark="Board title"
+                     LostFocus="OnBoardTitleLostFocus" />
+            <Button Content="+ Column" Click="OnAddColumnClick"
+                    ToolTip.Tip="Add a new column to the board" />
+        </StackPanel>
+
+        <!-- Hint bar -->
+        <TextBlock DockPanel.Dock="Top"
+                   Text="Arrows: navigate  •  Shift+Arrows: move card  •  F2/Enter: rename  •  Del: delete"
+                   FontSize="11" Foreground="Gray" Margin="12,0,10,6" />
+
+        <!-- Column scroll area (fills remaining space) -->
+        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Disabled"
+                      Margin="10,0,10,10">
+            <StackPanel x:Name="ColumnsPanel" Orientation="Horizontal" Spacing="12"
+                        Focusable="True" />
+        </ScrollViewer>
+    </DockPanel>
+</Window>

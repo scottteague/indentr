@@ -1,0 +1,32 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:Indentr.Core.Models;assembly=Indentr.Core"
+        x:Class="Indentr.UI.Views.NotePickerDialog"
+             Icon="avares://Indentr.UI/Assets/icon.png"
+        Title="Link to Note"
+        Width="500" Height="400"
+        WindowStartupLocation="CenterOwner">
+
+    <DockPanel Margin="12">
+        <!-- Bottom buttons -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+            <Button x:Name="OkButton" Content="Link Note" IsEnabled="False" Click="OnOk" />
+            <Button Content="Cancel" Click="OnCancel" />
+        </StackPanel>
+
+        <!-- Search box -->
+        <TextBox DockPanel.Dock="Top" x:Name="QueryBox"
+                 Watermark="Type to search notes…"
+                 Margin="0,0,0,8" KeyDown="OnQueryKeyDown" />
+
+        <!-- Results -->
+        <ListBox x:Name="ResultsList" SelectionChanged="OnResultSelected">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="models:Note">
+                    <TextBlock Text="{Binding Title}" />
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+</Window>

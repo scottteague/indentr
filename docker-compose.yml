@@ -1,18 +1,18 @@
 services:
   postgres:
     image: docker.io/library/postgres:17-alpine
-    container_name: organiz-db
+    container_name: indentr-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: organiz
+      POSTGRES_DB: indentr
       POSTGRES_USER: postgres
       POSTGRES_HOST_AUTH_METHOD: trust   # no password required; matches default config.json
     ports:
       - "5432:5432"
     volumes:
-      - ${ORGANIZ_DATA_DIR:-./data}:/var/lib/postgresql/data
+      - ${INDENTR_DATA_DIR:-./data}:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d organiz"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d indentr"]
       interval: 5s
       timeout: 5s
       retries: 5
