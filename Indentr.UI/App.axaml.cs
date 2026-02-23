@@ -75,7 +75,6 @@ public partial class App : Application
         var remoteCs = profile.RemoteDatabase is { } rdb
             ? ConnectionStringBuilder.Build(rdb.Host, rdb.Port, rdb.Name, rdb.Username, rdb.Password)
             : null;
-        Sync = new SyncService(cs, remoteCs);
 
         // Migrate schema.
         try
@@ -95,6 +94,10 @@ public partial class App : Application
         CurrentUser = await Users.GetOrCreateAsync(profile.Username);
         await Notes.EnsureRootExistsAsync(CurrentUser.Id);
         await Scratchpads.GetOrCreateForUserAsync(CurrentUser.Id);
+
+        // SyncService needs the user ID so the pull phase can apply the privacy filter
+        // (only pull private notes that belong to the current user).
+        Sync = new SyncService(cs, remoteCs, CurrentUser.Id);
 
         // Open main window.
         var loadingWindow = desktop.MainWindow;

@@ -764,6 +764,7 @@ Visibility is enforced in:
 - `GetOrphansAsync`: private orphans hidden from other users.
 - `SearchAsync`: private notes excluded from others' search results.
 - `NotesWindow.OpenAsync`: hard block — opening another user's private note shows an error and returns without opening.
+- `SyncService.PullAsync`: the notes pull query filters by `created_by = userId OR is_private = FALSE`, so private notes written by other users are never physically synced to the current user's local database.
 
 #### Toggling Privacy
 
@@ -864,7 +865,8 @@ For `attachments`, the existing `trg_attachment_lo_cleanup` (BEFORE DELETE) is u
    - Users referenced by `owner_id` / `created_by` are upserted on remote before any note that references them.
    - Attachment bytes are transferred via `lo_get` / `lo_from_bytea` (files are always uploaded to keep the remote the one true copy).
    - After confirming success, delete the sync_log entry.
-4. **Pull phase** — query the remote's current clock (`SELECT NOW()`) to use as the new watermark. Pull all entity rows where `updated_at > last_synced_at - 30s` (the 30-second safety buffer re-checks rows written in the milliseconds around `SELECT NOW()`, guarding against sub-second clock races). For each:
+4. **Pull phase** — query the remote's current clock (`SELECT NOW()`) to use as the new watermark. Pull all entity rows where `updated_at > last_synced_at - 30s` (the 30-second safety buffer re-checks rows written in the milliseconds around `SELECT NOW()`, guarding against sub-second clock races). The notes pull query also applies a privacy filter: only rows where `created_by = userId OR is_private = FALSE` are fetched, so other users' private notes are never written to the current user's local database. For each pulled row:
+   - If `content_hash` matches the local copy: skip — the row is already in sync. This covers notes just pushed in the same cycle, identical content on first sync, and buffer-overlap re-pulls, preventing false `[CONFLICT]` siblings in all three cases.
    - If the row does not exist locally: insert it.
    - If the row exists locally and has not changed since `last_synced_at`: update it.
    - If the row was in the buffer overlap window (its `updated_at ≤ last_synced_at`) and local is newer, skip silently — the next push will deliver the local version.

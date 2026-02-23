@@ -16,6 +16,7 @@ A multi-user, tree-structured note-taking app for the desktop, backed by Postgre
 - **Scratchpad** — a per-user scratch space that isn't part of the note tree.
 - **Multi-user** — multiple people can share one database. Notes can be marked public or private.
 - **Multiple profiles** — keep separate databases (personal, work, etc.) and switch between them from the menu.
+- **Optional remote sync** — pair any profile with a remote PostgreSQL server. Indentr pushes your changes and pulls others' on a 10-minute timer (or on demand with `Shift+Ctrl+S`). Works offline; the remote is best-effort only.
 - **Conflict-safe saves** — optimistic concurrency via content hashing. Conflicting edits are saved as a sibling `[CONFLICT]` note rather than silently overwritten.
 
 ---
@@ -88,6 +89,34 @@ The bottom bar of any note editor has a **📎 Attach** button. Attached files a
 ### Profiles
 
 **File → Switch Profile…** lets you add, edit, delete, or switch between database profiles. Switching saves all open notes and restarts the app.
+
+### Remote Sync
+
+Each profile can optionally sync to a remote PostgreSQL database, which lets multiple machines (or users) share notes.
+
+**To enable sync for a profile:**
+
+1. Open **File → Switch Profile…**.
+2. Select the profile and click **Edit**.
+3. In the profile editor, fill in the **Remote Database** section (host, port, database name, username, password).
+4. Use the **Test Connection** button to verify the remote is reachable.
+5. Click **Save**.
+
+Once configured, Indentr syncs automatically every 10 minutes. You can also trigger an immediate sync with **`Shift+Ctrl+S`** (saves all open windows first, then syncs).
+
+**Status bar** — the bottom of the main window shows the sync state:
+
+| Status | Meaning |
+|--------|---------|
+| `Synced at 14:32` | Last sync completed successfully at that time. |
+| `Offline` | Remote was unreachable; will retry on the next timer tick. |
+| `Sync failed: …` | An error occurred; the message gives a short reason. |
+
+The status bar is hidden entirely when no remote database is configured for the active profile.
+
+**Profile picker** — when you open the profile picker, each profile that has a remote configured shows a dimmed sub-line with its last sync time (e.g. `Synced today at 14:32` or `Never synced`).
+
+**Privacy during sync** — only notes you created, or public notes, are synced to other users' local databases. Private notes written by others are never pulled to your machine.
 
 ---
 

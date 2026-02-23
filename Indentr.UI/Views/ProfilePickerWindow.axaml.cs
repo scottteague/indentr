@@ -85,7 +85,7 @@ public partial class ProfilePickerWindow : Window
             var cs  = ConnectionStringBuilder.Build(
                 profile.Database.Host, profile.Database.Port,
                 profile.Database.Name, profile.Database.Username, profile.Database.Password);
-            var svc = new SyncService(cs, remoteConnectionString: null);
+            var svc = new SyncService(cs, remoteConnectionString: null, userId: Guid.Empty);
             var ts  = await svc.GetLastSyncedAtAsync();
             if (ts == DateTimeOffset.MinValue) return "Never synced";
             var local = ts.ToLocalTime();

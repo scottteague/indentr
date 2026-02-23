@@ -4,10 +4,11 @@ using Indentr.Core.Interfaces;
 
 namespace Indentr.Data;
 
-public class SyncService(string localConnectionString, string? remoteConnectionString) : ISyncService
+public class SyncService(string localConnectionString, string? remoteConnectionString, Guid userId) : ISyncService
 {
     private readonly string  _localCs  = localConnectionString;
     private readonly string? _remoteCs = remoteConnectionString;
+    private readonly Guid    _userId   = userId;
 
     // ── Internal types ────────────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
             await local.OpenAsync();
             await remote.OpenAsync();
             syncStartedAt = await GetRemoteClockAsync(remote);
-            await PullAsync(local, remote, lastSyncedAt);
+            await PullAsync(local, remote, lastSyncedAt, _userId);
         }
         catch (Exception ex)
         {
@@ -587,7 +588,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         DateTime CreatedAt, DateTime UpdatedAt);
 
     private static async Task PullAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset lastSyncedAt)
+        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset lastSyncedAt, Guid userId)
     {
         // Shift the pull filter back by PullSafetyBuffer so rows written in the
         // milliseconds around SELECT NOW() are re-checked on each sync cycle.
@@ -596,7 +597,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
 
         // Process in FK dependency order so referenced rows exist before referencing ones.
         await PullUsersAsync(local, remote);
-        await PullNotesAsync(local, remote, lastSyncedAt, safetyFilterSince);
+        await PullNotesAsync(local, remote, lastSyncedAt, safetyFilterSince, userId);
         await PullScratchpadsAsync(local, remote, safetyFilterSince);
         await PullKanbanBoardsAsync(local, remote, safetyFilterSince);
         await PullKanbanColumnsAsync(local, remote, safetyFilterSince);
@@ -632,18 +633,22 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
 
     private static async Task PullNotesAsync(
         NpgsqlConnection local, NpgsqlConnection remote,
-        DateTimeOffset lastSyncedAt, DateTimeOffset safetyFilterSince)
+        DateTimeOffset lastSyncedAt, DateTimeOffset safetyFilterSince, Guid userId)
     {
-        // Fetch all notes modified on remote since (lastSyncedAt - PullSafetyBuffer).
-        // The wider window catches rows written in the milliseconds around SELECT NOW().
+        // Fetch notes modified on remote since (lastSyncedAt - PullSafetyBuffer).
+        // The privacy filter mirrors the read-path policy: pull public notes from anyone,
+        // but only pull private notes that belong to the current user.
         var remoteNotes = new List<RemoteNote>();
         await using (var cmd = new NpgsqlCommand(
             @"SELECT id, parent_id, is_root, title, content, content_hash,
                      owner_id, created_by, is_private, sort_order, created_at, updated_at
-              FROM notes WHERE updated_at > @since",
+              FROM notes
+              WHERE updated_at > @since
+                AND (created_by = @userId OR is_private = FALSE)",
             remote))
         {
             cmd.Parameters.AddWithValue("since", safetyFilterSince.UtcDateTime);
+            cmd.Parameters.AddWithValue("userId", userId);
             await using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
                 remoteNotes.Add(new RemoteNote(
@@ -663,42 +668,51 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         foreach (var rn in remoteNotes)
         {
             await using var checkCmd = new NpgsqlCommand(
-                "SELECT updated_at FROM notes WHERE id = @id", local);
+                "SELECT updated_at, content_hash FROM notes WHERE id = @id", local);
             checkCmd.Parameters.AddWithValue("id", rn.Id);
-            var raw = await checkCmd.ExecuteScalarAsync();
+            await using var checkReader = await checkCmd.ExecuteReaderAsync();
+            var exists = await checkReader.ReadAsync();
+            var localUpdatedAt = exists ? checkReader.GetDateTime(0) : default;
+            var localHash      = exists ? checkReader.GetString(1)   : null;
+            await checkReader.CloseAsync();
 
-            if (raw is null)
+            if (!exists)
             {
                 // Genuinely new on remote → insert.
                 await InsertNoteFromRemoteAsync(local, rn);
                 parentIdFixes.Add((rn.Id, rn.ParentId));
             }
-            else
+            else if (rn.ContentHash == localHash)
             {
-                var localUpdatedAt = (DateTime)raw;
-                if (rn.UpdatedAt <= lastSyncedAt.UtcDateTime)
+                // Content identical on both sides — already in sync.
+                // This covers notes just pushed in this same cycle (push writes the local
+                // updated_at to remote, making them visible to the pull filter; without this
+                // check both timestamps appear newer than lastSyncedAt and a false conflict
+                // fires), the first-sync case where both databases happen to hold matching
+                // content, and buffer-overlap re-pulls of already-processed rows.
+            }
+            else if (rn.UpdatedAt <= lastSyncedAt.UtcDateTime)
+            {
+                // Buffer-overlap re-pull: this row was already covered by a previous sync.
+                // If local is still unchanged, update idempotently.
+                // If local has changed since then, local wins — skip (next push delivers it).
+                if (localUpdatedAt <= lastSyncedAt.UtcDateTime)
                 {
-                    // Buffer-overlap re-pull: this row was already covered by a previous sync.
-                    // If local is still unchanged, update idempotently.
-                    // If local has changed since then, local wins — skip (next push delivers it).
-                    if (localUpdatedAt <= lastSyncedAt.UtcDateTime)
-                    {
-                        await UpdateNoteFromRemoteAsync(local, rn);
-                        parentIdFixes.Add((rn.Id, rn.ParentId));
-                    }
-                    // else: local is newer — no conflict sibling; push will reconcile.
-                }
-                else if (localUpdatedAt <= lastSyncedAt.UtcDateTime)
-                {
-                    // Remote is genuinely new, local is unchanged since last sync → update.
                     await UpdateNoteFromRemoteAsync(local, rn);
                     parentIdFixes.Add((rn.Id, rn.ParentId));
                 }
-                else
-                {
-                    // Both sides modified since last sync → real conflict sibling.
-                    await CreateConflictNoteAsync(local, rn);
-                }
+                // else: local is newer — no conflict sibling; push will reconcile.
+            }
+            else if (localUpdatedAt <= lastSyncedAt.UtcDateTime)
+            {
+                // Remote is genuinely new, local is unchanged since last sync → update.
+                await UpdateNoteFromRemoteAsync(local, rn);
+                parentIdFixes.Add((rn.Id, rn.ParentId));
+            }
+            else
+            {
+                // Both sides modified since last sync with different content → real conflict.
+                await CreateConflictNoteAsync(local, rn);
             }
         }
 
