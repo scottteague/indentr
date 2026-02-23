@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <!-- Required for Avalonia AXAML compilation -->
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- Embeds the icon into the .exe (visible in File Explorer and taskbar) -->
+    <ApplicationIcon>img\Organiz.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
