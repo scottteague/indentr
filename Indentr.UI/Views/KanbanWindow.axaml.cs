@@ -14,7 +14,7 @@ public partial class KanbanWindow : Window
 
     private static readonly Dictionary<Guid, KanbanWindow> _openBoards = new();
 
-    public static async Task OpenAsync(Guid boardId)
+    public static async Task OpenAsync(Guid boardId, Guid? sourceNoteId = null)
     {
         if (_openBoards.TryGetValue(boardId, out var existing))
         {
@@ -26,7 +26,7 @@ public partial class KanbanWindow : Window
         if (board is null) return;
 
         var columns = await App.Kanban.GetColumnsWithCardsAsync(boardId);
-        var win = new KanbanWindow(board, columns);
+        var win = new KanbanWindow(board, columns, sourceNoteId);
         _openBoards[boardId] = win;
         win.Closed += (_, _) => _openBoards.Remove(boardId);
         win.Show();
@@ -38,15 +38,17 @@ public partial class KanbanWindow : Window
     private List<KanbanColumn>   _columns;
     private Guid?                _selectedCardId;
     private Border?              _selectedBorder;
+    private readonly Guid?       _sourceNoteId;   // note that hosts the kanban: link
 
     // Rebuilt by BuildBoardUI()
     private readonly List<StackPanel>          _colCardPanels = new();
     private readonly Dictionary<Guid, Border>  _cardBorders   = new();
 
-    private KanbanWindow(KanbanBoard board, List<KanbanColumn> columns)
+    private KanbanWindow(KanbanBoard board, List<KanbanColumn> columns, Guid? sourceNoteId)
     {
-        _board   = board;
-        _columns = columns;
+        _board        = board;
+        _columns      = columns;
+        _sourceNoteId = sourceNoteId;
         InitializeComponent();
         Title              = board.Title.Length > 0 ? board.Title : "Kanban Board";
         BoardTitleBox.Text = board.Title;
@@ -412,6 +414,7 @@ public partial class KanbanWindow : Window
 
         card.NoteId = note.Id;
         await App.Kanban.SetCardNoteAsync(card.Id, note.Id);
+        await AttachNoteToSourceAsync(note);
 
         BuildBoardUI();
         if (_cardBorders.TryGetValue(card.Id, out var b))
@@ -436,12 +439,35 @@ public partial class KanbanWindow : Window
 
         card.NoteId = note.Id;
         await App.Kanban.SetCardNoteAsync(card.Id, note.Id);
+        await AttachNoteToSourceAsync(note);
 
         BuildBoardUI();
         if (_cardBorders.TryGetValue(card.Id, out var b))
             SelectCard(card.Id, b);
 
         await NotesWindow.OpenAsync(note.Id);
+    }
+
+    // If this board was opened from a note, appends a link to the new note in that
+    // source note so it becomes a tree child rather than an orphan.
+    private async Task AttachNoteToSourceAsync(Indentr.Core.Models.Note note)
+    {
+        if (_sourceNoteId is null) return;
+
+        // Flush any open window first so the DB has the latest content and hash.
+        await MainWindow.SaveIfRootAsync(_sourceNoteId.Value);
+        await NotesWindow.SaveIfOpenAsync(_sourceNoteId.Value);
+
+        var source = await App.Notes.GetByIdAsync(_sourceNoteId.Value);
+        if (source is null) return;
+
+        source.Content += $"\n[{note.Title}](note:{note.Id})";
+        source.OwnerId  = App.CurrentUser.Id;
+        await App.Notes.SaveAsync(source, source.ContentHash);
+
+        // Reload open windows so the new link is immediately visible.
+        await MainWindow.ReloadIfRootAsync(_sourceNoteId.Value);
+        await NotesWindow.ReloadIfOpenAsync(_sourceNoteId.Value);
     }
 
     private async Task DeleteCardAsync(KanbanCard card)

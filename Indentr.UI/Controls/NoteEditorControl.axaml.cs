@@ -238,7 +238,7 @@ public partial class NoteEditorControl : UserControl
             else if (target.StartsWith("kanban:", StringComparison.OrdinalIgnoreCase))
             {
                 if (Guid.TryParse(target["kanban:".Length..], out var boardId))
-                    _ = KanbanWindow.OpenAsync(boardId);
+                    _ = KanbanWindow.OpenAsync(boardId, _noteId);
             }
             else
             {
@@ -288,12 +288,18 @@ public partial class NoteEditorControl : UserControl
         var window = TopLevel.GetTopLevel(this) as Window;
         if (window is null) return;
 
-        var title = await InputDialog.ShowAsync(window, "New Kanban Board", "Board title:");
-        if (string.IsNullOrWhiteSpace(title)) return;
+        // Use selected text as the board title, just like new child notes do.
+        // Fall back to the input dialog only when nothing is selected.
+        var title = Editor.SelectedText.Trim();
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            title = await InputDialog.ShowAsync(window, "New Kanban Board", "Board title:");
+            if (string.IsNullOrWhiteSpace(title)) return;
+        }
 
         var board = await App.Kanban.CreateBoardAsync(title, _userId);
         ReplaceSelection($"[{title}](kanban:{board.Id})");
-        await KanbanWindow.OpenAsync(board.Id);
+        await KanbanWindow.OpenAsync(board.Id, _noteId);
     }
 
     private async void OnSaveClick(object? sender, RoutedEventArgs e) => await DoSave();

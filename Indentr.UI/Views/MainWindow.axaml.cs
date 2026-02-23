@@ -211,6 +211,10 @@ public partial class MainWindow : Window
     {
         _syncTimer?.Stop();
         await RootEditor.DoSave();
+        await NotesWindow.SaveAllAsync();
+        await ScratchpadWindow.SaveAllAsync();
+        if (App.CurrentProfile.RemoteDatabase is not null)
+            await App.Sync.SyncOnceAsync();
         _closing = true;
         Close();
     }
