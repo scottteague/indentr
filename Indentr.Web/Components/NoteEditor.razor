@@ -60,6 +60,7 @@ else
 
     private IJSObjectReference?         _module;
     private DotNetObjectReference<NoteEditor>? _dotNetRef;
+    private bool _editorInitialized;
 
     protected override async Task OnInitializedAsync()
     {
@@ -89,7 +90,8 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || _note is null) return;
+        if (_editorInitialized || _note is null) return;
+        _editorInitialized = true; // guard before first await to prevent double-init
 
         _module     = await JS.InvokeAsync<IJSObjectReference>("import", "/js/editor.js");
         _dotNetRef  = DotNetObjectReference.Create(this);

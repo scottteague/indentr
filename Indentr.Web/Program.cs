@@ -1,12 +1,16 @@
 using Indentr.Data;
 using Indentr.Data.Repositories;
-using Indentr.Web.Components;
 using Indentr.Web.Config;
 using Indentr.Web.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+// Load static web assets from the SDK manifest (dev) or publish output (prod).
+// Required in .NET 9+ for MapStaticAssets() to serve _framework/blazor.server.js.
+builder.WebHost.UseStaticWebAssets();
+
+builder.Services.AddRazorPages();
+builder.Services.AddServerSideBlazor();
 builder.Services.AddSingleton<NoteChangeNotifier>();
 builder.Services.AddScoped<AppSession>();
 
@@ -19,7 +23,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseStaticFiles();
-app.UseAntiforgery();
+app.MapStaticAssets();
 
 // Attachment download endpoint — creates its own store outside circuit scope.
 app.MapGet("/api/attachments/{id:guid}", async (Guid id) =>
@@ -43,6 +47,7 @@ app.MapGet("/api/attachments/{id:guid}", async (Guid id) =>
     return Results.File(stream, meta.MimeType, meta.Filename);
 });
 
-app.MapRazorComponents<Indentr.Web.App>().AddInteractiveServerRenderMode();
+app.MapBlazorHub();
+app.MapFallbackToPage("/_Host");
 
 app.Run();

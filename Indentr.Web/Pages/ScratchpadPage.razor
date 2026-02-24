@@ -32,6 +32,7 @@
 
     private IJSObjectReference?              _module;
     private DotNetObjectReference<ScratchpadPage>? _dotNetRef;
+    private bool _editorInitialized;
 
     protected override async Task OnInitializedAsync()
     {
@@ -42,7 +43,9 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || _pad is null) return;
+        if (_editorInitialized || _pad is null) return;
+        _editorInitialized = true; // guard before first await to prevent double-init
+
         _module    = await JS.InvokeAsync<IJSObjectReference>("import", "/js/editor.js");
         _dotNetRef = DotNetObjectReference.Create(this);
         await _module.InvokeVoidAsync("create", _editorId, _pad.Content, _dotNetRef);

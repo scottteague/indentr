@@ -1,10 +1,10 @@
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState } from "https://esm.sh/@codemirror/state@6.4.1";
 import {
-    EditorView, ViewPlugin, Decoration, DecorationSet, WidgetType,
-    drawSelection, highlightActiveLine, keymap, lineNumbers
-} from "@codemirror/view";
-import { markdown } from "@codemirror/lang-markdown";
-import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
+    EditorView, ViewPlugin, Decoration,
+    drawSelection, highlightActiveLine, lineNumbers
+} from "https://esm.sh/@codemirror/view@6.36.2?deps=@codemirror/state@6.4.1";
+import { markdown } from "https://esm.sh/@codemirror/lang-markdown@6.3.2?deps=@codemirror/state@6.4.1,@codemirror/view@6.36.2";
+import { syntaxHighlighting, defaultHighlightStyle } from "https://esm.sh/@codemirror/language@6.10.8?deps=@codemirror/state@6.4.1";
 
 // ── Link decoration ────────────────────────────────────────────────────────────
 
