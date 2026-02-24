@@ -52,6 +52,7 @@
     }
 
     [JSInvokable] public void OnContentChanged(string content) => _currentContent = content;
+    [JSInvokable] public Task SaveFromKeyboard() => SaveAsync();
     [JSInvokable] public void OnLinkClicked(string target) { } // no-op for scratchpad
 
     private async Task SaveAsync()

@@ -1,8 +1,11 @@
 import { EditorState } from "https://esm.sh/@codemirror/state@6.4.1";
 import {
-    EditorView, ViewPlugin, Decoration,
+    EditorView, ViewPlugin, Decoration, keymap,
     drawSelection, highlightActiveLine, lineNumbers
 } from "https://esm.sh/@codemirror/view@6.36.2?deps=@codemirror/state@6.4.1";
+import {
+    defaultKeymap, history, historyKeymap
+} from "https://esm.sh/@codemirror/commands@6.7.1?deps=@codemirror/state@6.4.1,@codemirror/view@6.36.2";
 import { markdown } from "https://esm.sh/@codemirror/lang-markdown@6.3.2?deps=@codemirror/state@6.4.1,@codemirror/view@6.36.2";
 import { syntaxHighlighting, defaultHighlightStyle } from "https://esm.sh/@codemirror/language@6.10.8?deps=@codemirror/state@6.4.1";
 
@@ -25,11 +28,12 @@ function buildLinkDecorations(view) {
         while ((m = LINK_RE.exec(text)) !== null) {
             const start = from + m.index;
             const end   = start + m[0].length;
-            // Extract target (the part after the opening paren)
-            const parenContent = m[0].slice(m[1].length + 3, -1); // strip [text]( and )
-            const target = parenContent;
-            const cls    = classForTarget(target);
-            decorations.push(Decoration.mark({ class: cls, attributes: { "data-link": target } }).range(start, end));
+            const parenContent = m[0].slice(m[1].length + 3, -1);
+            const cls = classForTarget(parenContent);
+            decorations.push(
+                Decoration.mark({ class: cls, attributes: { "data-link": parenContent } })
+                          .range(start, end)
+            );
         }
     }
     return Decoration.set(decorations, true);
@@ -72,6 +76,12 @@ export function create(elementId, initialContent, dotNetRef) {
         ".cm-ext-link":    { color: "#41d2b4", cursor: "pointer" },
     }, { dark: true });
 
+    const saveKeymap = [{
+        key: "Mod-s",
+        preventDefault: true,
+        run: () => { dotNetRef.invokeMethodAsync("SaveFromKeyboard"); return true; }
+    }];
+
     const changeListener = EditorView.updateListener.of(update => {
         if (update.docChanged)
             dotNetRef.invokeMethodAsync("OnContentChanged", update.state.doc.toString());
@@ -95,6 +105,8 @@ export function create(elementId, initialContent, dotNetRef) {
     const state = EditorState.create({
         doc: initialContent,
         extensions: [
+            history(),
+            keymap.of([...defaultKeymap, ...historyKeymap, ...saveKeymap]),
             lineNumbers(),
             drawSelection(),
             highlightActiveLine(),

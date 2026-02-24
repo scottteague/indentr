@@ -102,6 +102,9 @@ else
     public void OnContentChanged(string content) => _currentContent = content;
 
     [JSInvokable]
+    public Task SaveFromKeyboard() => SaveAsync();
+
+    [JSInvokable]
     public void OnLinkClicked(string target)
     {
         if (target.StartsWith("note:") && Guid.TryParse(target[5..], out var id))
