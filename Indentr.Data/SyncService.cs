@@ -794,8 +794,23 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         var sortOrder = pr.GetInt32(1);
         await pr.CloseAsync();
 
-        var username  = await GetUsernameAsync(local, rn.OwnerId);
-        var timestamp = rn.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+        var username      = await GetUsernameAsync(local, rn.OwnerId);
+        var timestamp     = rn.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+        var conflictTitle = $"⚠ CONFLICT: {rn.Title} (by {username} on {timestamp})";
+
+        // Guard against duplicate conflict notes: if the watermark failed to advance
+        // last cycle this function may be called again for the same remote note.
+        // The conflict title is deterministic (derived from rn.OwnerId + rn.UpdatedAt),
+        // so a matching sibling means the conflict was already handled — skip it.
+        await using var existsCmd = new NpgsqlCommand(
+            @"SELECT 1 FROM notes
+              WHERE parent_id IS NOT DISTINCT FROM @parentId
+                AND title = @title
+              LIMIT 1",
+            local);
+        existsCmd.Parameters.AddWithValue("parentId", (object?)parentId ?? DBNull.Value);
+        existsCmd.Parameters.AddWithValue("title", conflictTitle);
+        if (await existsCmd.ExecuteScalarAsync() is not null) return;
 
         await using var cmd = new NpgsqlCommand(
             @"INSERT INTO notes
@@ -806,14 +821,22 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                  @ownerId, @ownerId, @isPrivate, @sortOrder, NOW(), NOW())",
             local);
         cmd.Parameters.AddWithValue("parentId", (object?)parentId ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("title",
-            $"⚠ CONFLICT: {rn.Title} (by {username} on {timestamp})");
+        cmd.Parameters.AddWithValue("title", conflictTitle);
         cmd.Parameters.AddWithValue("content", rn.Content);
         cmd.Parameters.AddWithValue("hash", rn.ContentHash);
         cmd.Parameters.AddWithValue("ownerId", rn.OwnerId);
         cmd.Parameters.AddWithValue("isPrivate", rn.IsPrivate);
         cmd.Parameters.AddWithValue("sortOrder", sortOrder + 1);
         await cmd.ExecuteNonQueryAsync();
+
+        // Bump the original note's updated_at so the buffer-overlap branch in the
+        // next sync cycle sees local as newer and won't silently overwrite it.
+        // The sync_log trigger entry this produces also causes the local version to
+        // be pushed to remote on the next push, completing reconciliation.
+        await using var touchCmd = new NpgsqlCommand(
+            "UPDATE notes SET updated_at = NOW() WHERE id = @id", local);
+        touchCmd.Parameters.AddWithValue("id", rn.Id);
+        await touchCmd.ExecuteNonQueryAsync();
     }
 
     private static async Task<string> GetUsernameAsync(NpgsqlConnection local, Guid userId)

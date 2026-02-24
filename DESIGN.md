@@ -306,14 +306,17 @@ Multiple users may edit the same note concurrently. The system must avoid data l
 1. **On load:** The client reads the note's `content` and its `content_hash`.
 2. **On save:** The client sends the updated `content` along with the `content_hash` it originally loaded.
 3. **Server checks:** If the stored `content_hash` matches the submitted hash, the save proceeds normally and a new hash is computed.
-4. **Conflict detected:** If the hashes do not match (another user modified the note since it was loaded):
-   - The updated content is **not** written over the existing note.
-   - Instead, a **new conflict note** is created as a **sibling** (same `parent_id` as the original).
-   - The conflict note is clearly marked (e.g., title prefix: `[CONFLICT] Original Title`) so the user can identify and manually merge it later.
+4. **Conflict detected:** If the hashes do not match (another user or sync modified the note since it was loaded):
+   - The **user's edits are saved** to the original note.
+   - The **remote version** (the content that triggered the conflict) is preserved as a new sibling with a `⚠ CONFLICT:` title prefix.
+   - The in-editor hash is updated so any subsequent save proceeds normally without re-triggering the conflict path.
+   - The user is notified via a dialog.
 
 ### Conflict Note Behavior
 
-- Appears as a sibling of the original note, making it visually obvious in the tree.
+- Appears as a sibling of the original note, making the conflict visually obvious in the tree.
+- The conflict note holds the **remote version**; the original note retains the **user's edits**.
+- Title format: `⚠ CONFLICT: <title>` (user-save path) or `⚠ CONFLICT: <title> (by <user> on <timestamp>)` (sync path).
 - The user can open both notes side by side and manually reconcile the content.
 - After merging, the user deletes the conflict note.
 
@@ -377,7 +380,7 @@ A save is triggered by any of the following:
 | **Opening Manage Notes**  | The root note is saved before the Management Form opens. |
 | **Insert Link in Parent** | Any open window editing the parent note is saved before the link is appended, then reloaded afterwards so its hash stays current. |
 
-On save, the optimistic concurrency check (hash comparison) is performed. If a conflict is detected, the conflict note is created and the user is notified.
+On save, the optimistic concurrency check (hash comparison) is performed. If a conflict is detected, the user's edits are saved to the original note, the remote version is preserved as a `⚠ CONFLICT:` sibling, and the user is notified via a dialog.
 
 ---
 
@@ -870,7 +873,7 @@ For `attachments`, the existing `trg_attachment_lo_cleanup` (BEFORE DELETE) is u
    - If the row does not exist locally: insert it.
    - If the row exists locally and has not changed since `last_synced_at`: update it.
    - If the row was in the buffer overlap window (its `updated_at ≤ last_synced_at`) and local is newer, skip silently — the next push will deliver the local version.
-   - If the row exists locally and **has** changed since `last_synced_at` (both sides modified): conflict. Create a `[CONFLICT] title (by user on timestamp)` sibling note (same resolution as the existing hash-based conflict path).
+   - If the row exists locally and **has** changed since `last_synced_at` (both sides modified): conflict. Remote version is inserted as a `⚠ CONFLICT: title (by user on timestamp)` sibling; the original note's `updated_at` is bumped so the buffer-overlap branch cannot silently overwrite it on the next cycle, and the local version is pushed to remote on the next sync.
    - Remote deletes are detected by comparing remote UUID sets to local UUID sets; entities present locally but absent remotely (and with no local INSERT in `sync_log`) are deleted locally.
 5. **Update `sync_state`** — set `last_synced_at` to the remote clock value captured at the start of step 4. Using the remote's clock (not the local machine's `NOW()`) keeps `last_synced_at` and remote `updated_at` values in the same clock domain, so NTP drift between machines cannot silently drop rows.
 
@@ -878,7 +881,7 @@ For `attachments`, the existing `trg_attachment_lo_cleanup` (BEFORE DELETE) is u
 
 | Situation | Outcome |
 |-----------|---------|
-| Both sides modified same note | Local version kept; remote version copied as `[CONFLICT] title (by user on timestamp)` sibling. |
+| Both sides modified same note | User's edits saved to original; remote version preserved as `⚠ CONFLICT: title (by user on timestamp)` sibling. Original note's `updated_at` is bumped so local version is pushed to remote on next sync. |
 | Remote deleted, local unmodified | Local row is deleted. |
 | Remote deleted, local modified since last sync | Local edit wins; the deletion is ignored. The note is pushed to remote on the next sync. |
 | Local deleted, remote unmodified | Remote row is deleted on push. |

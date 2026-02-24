@@ -95,7 +95,7 @@ public partial class NotesWindow : Window
             _note.OwnerId   = App.CurrentUser.Id;
             _note.IsPrivate = !isPublic;
             var result = await App.Notes.SaveAsync(_note, originalHash);
-            if (result == SaveResult.Success)
+            if (result == SaveResult.Success || result == SaveResult.Conflict)
             {
                 Editor.UpdateOriginalHash(_note.ContentHash);
                 Title = _note.Title.Length > 0 ? _note.Title : "Untitled Note";

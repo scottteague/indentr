@@ -343,8 +343,8 @@ public partial class NoteEditorControl : UserControl
             await MessageBox.ShowError(window,
                 "Save Conflict",
                 "Another user modified this note while you were editing. " +
-                "Your version has been saved as a [CONFLICT] note. " +
-                "Please merge the two notes manually.");
+                "The remote version has been saved as a ⚠ CONFLICT sibling. " +
+                "Your edits are saved. Please merge the two notes manually.");
             return false;
         }
 

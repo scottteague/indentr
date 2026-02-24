@@ -149,20 +149,21 @@ public class NoteRepository(string connectionString) : INoteRepository
         string oldContent = checkReader.GetString(2);
         await checkReader.CloseAsync();
 
-        if (storedHash != originalHash)
+        bool conflict = storedHash != originalHash;
+        if (conflict)
         {
-            // Conflict: create a sibling conflict note
+            // Remote has diverged — preserve the remote version as a CONFLICT sibling,
+            // then fall through to save the user's edits into the original note.
             var conflictNote = new Note
             {
                 ParentId = parentId,
                 IsRoot = false,
                 Title = $"⚠ CONFLICT: {note.Title}",
-                Content = note.Content,
+                Content = oldContent,
                 OwnerId = note.OwnerId,
                 SortOrder = note.SortOrder + 1
             };
             await CreateAsync(conflictNote);
-            return SaveResult.Conflict;
         }
 
         var newHash = ComputeHash(note.Content);
@@ -183,7 +184,7 @@ public class NoteRepository(string connectionString) : INoteRepository
         // Keep parent_id in sync with the link graph
         await SyncParentLinksAsync(conn, note.Id, oldContent, note.Content);
 
-        return SaveResult.Success;
+        return conflict ? SaveResult.Conflict : SaveResult.Success;
     }
 
     public async Task DeleteAsync(Guid id)
