@@ -1,0 +1,90 @@
+.note-editor {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 0;
+}
+
+.note-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border, #3a3a3a);
+    flex-shrink: 0;
+}
+
+.note-title {
+    flex: 1;
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--fg, #d4d4d4);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.note-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.btn-save {
+    padding: 5px 14px;
+    background: var(--accent, #64afff);
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.btn-save:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.status-text {
+    font-size: 12px;
+    color: var(--fg-muted, #888);
+}
+
+.status-conflict {
+    font-size: 12px;
+    color: #e06c75;
+}
+
+.attachments {
+    padding: 8px 20px;
+    border-bottom: 1px solid var(--border, #3a3a3a);
+    font-size: 12px;
+    color: var(--fg-muted, #888);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.attachment-link {
+    color: var(--accent, #64afff);
+    text-decoration: none;
+}
+
+.attachment-link:hover {
+    text-decoration: underline;
+}
+
+.cm-host {
+    flex: 1;
+    overflow: hidden;
+}
+
+.note-missing {
+    padding: 40px 20px;
+    color: var(--fg-muted, #888);
+}

@@ -1,0 +1,23 @@
+@code {
+    [Parameter] public EventCallback<DatabaseProfile> OnProfileSelected { get; set; }
+
+    private List<DatabaseProfile> _profiles = [];
+
+    protected override void OnInitialized()
+    {
+        _profiles = ConfigManager.Load().Profiles;
+    }
+
+    private Task Select(DatabaseProfile profile) => OnProfileSelected.InvokeAsync(profile);
+}
+
+<div class="profile-picker">
+    <h2>Select a profile</h2>
+    @foreach (var p in _profiles)
+    {
+        <button class="profile-btn" @onclick="() => Select(p)">
+            <strong>@p.Name</strong>
+            <span class="profile-sub">@p.Username &mdash; @p.Database.Host/@p.Database.Name</span>
+        </button>
+    }
+</div>

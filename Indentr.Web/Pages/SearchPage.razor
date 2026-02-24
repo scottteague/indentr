@@ -1,0 +1,56 @@
+@page "/search"
+@inject AppSession Session
+
+<PageTitle>Search — Indentr</PageTitle>
+
+<div class="search-page">
+    <div class="search-bar">
+        <input class="search-input"
+               type="search"
+               placeholder="Search notes…"
+               @bind="_query"
+               @bind:event="oninput"
+               @onkeydown="OnKeyDown" />
+        <button class="btn-save" @onclick="RunSearchAsync">Search</button>
+    </div>
+
+    @if (_results is not null)
+    {
+        @if (_results.Count == 0)
+        {
+            <p class="search-empty">No results for "<em>@_lastQuery</em>".</p>
+        }
+        else
+        {
+            <ul class="search-results">
+                @foreach (var note in _results)
+                {
+                    <li>
+                        <a href="/note/@note.Id" target="_blank" class="search-link">
+                            @note.Title
+                        </a>
+                    </li>
+                }
+            </ul>
+        }
+    }
+</div>
+
+@code {
+    private string  _query     = "";
+    private string  _lastQuery = "";
+    private List<Note>? _results;
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await RunSearchAsync();
+    }
+
+    private async Task RunSearchAsync()
+    {
+        if (Session.Notes is null || Session.CurrentUser is null || string.IsNullOrWhiteSpace(_query)) return;
+        _lastQuery = _query.Trim();
+        var raw = await Session.Notes.SearchAsync(_lastQuery, Session.CurrentUser.Id);
+        _results = raw.ToList();
+    }
+}

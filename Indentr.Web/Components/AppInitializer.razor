@@ -1,0 +1,68 @@
+@inject AppSession Session
+@implements IAsyncDisposable
+
+@if (Session.State == SessionState.Ready)
+{
+    @ChildContent
+}
+else if (_pickingProfile)
+{
+    <ProfilePicker OnProfileSelected="OnProfileSelected" />
+}
+else if (Session.State == SessionState.Error)
+{
+    <div class="init-message init-error">
+        <h2>Database Error</h2>
+        <p>@Session.ErrorMessage</p>
+        <p>Please check your config at <code>~/.config/indentr/config.json</code></p>
+    </div>
+}
+else if (Session.State == SessionState.Uninitialized && _noProfiles)
+{
+    <div class="init-message">
+        <h2>No profiles found</h2>
+        <p>Create a profile using the Indentr desktop app first, then refresh this page.</p>
+    </div>
+}
+else
+{
+    <div class="init-message">
+        <p>Connecting…</p>
+    </div>
+}
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private bool _pickingProfile;
+    private bool _noProfiles;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var config = ConfigManager.Load();
+
+        if (config.Profiles.Count == 0)
+        {
+            _noProfiles = true;
+            return;
+        }
+
+        if (config.Profiles.Count == 1)
+        {
+            await Session.InitializeAsync(config.Profiles[0]);
+            return;
+        }
+
+        // 2+ profiles — show picker
+        _pickingProfile = true;
+    }
+
+    private async Task OnProfileSelected(DatabaseProfile profile)
+    {
+        _pickingProfile = false;
+        await Session.InitializeAsync(profile);
+        StateHasChanged();
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}

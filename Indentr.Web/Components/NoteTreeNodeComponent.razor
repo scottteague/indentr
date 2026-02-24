@@ -1,0 +1,71 @@
+@inject AppSession Session
+@inject NoteChangeNotifier Notifier
+@implements IAsyncDisposable
+
+<div class="tree-node" style="padding-left: @(Depth * 16)px">
+    <div class="tree-row">
+        @if (Node.HasChildren || Node.IsLoaded)
+        {
+            <button class="tree-toggle" @onclick="ToggleAsync">
+                @(Node.IsExpanded ? "▾" : "▸")
+            </button>
+        }
+        else
+        {
+            <span class="tree-spacer"></span>
+        }
+        <a class="tree-label @(Node.IsPrivate ? "private" : "")"
+           href="/note/@Node.Id" target="_blank">@Node.Title</a>
+    </div>
+
+    @if (Node.IsExpanded && Node.IsLoaded)
+    {
+        @foreach (var child in Node.Children)
+        {
+            <NoteTreeNodeComponent Node="child" Depth="@(Depth + 1)" />
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public NoteTreeNode Node  { get; set; } = null!;
+    [Parameter]                 public int          Depth { get; set; }
+
+    protected override void OnInitialized() => Notifier.NoteChanged += HandleChange;
+
+    private async Task ToggleAsync()
+    {
+        if (!Node.IsLoaded)
+            await LoadChildrenAsync();
+
+        Node.IsExpanded = !Node.IsExpanded;
+    }
+
+    private async Task LoadChildrenAsync()
+    {
+        if (Session.Notes is null || Session.CurrentUser is null) return;
+        var children = await Session.Notes.GetChildrenAsync(Node.Id, Session.CurrentUser.Id);
+        Node.Children = children.ToList();
+        Node.IsLoaded = true;
+    }
+
+    private void HandleChange(Guid id)
+    {
+        // Only reload if one of our children changed.
+        if (id == Node.Id || Node.Children.Any(c => c.Id == id))
+        {
+            _ = InvokeAsync(async () =>
+            {
+                if (Node.IsLoaded)
+                    await LoadChildrenAsync();
+                StateHasChanged();
+            });
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Notifier.NoteChanged -= HandleChange;
+        await ValueTask.CompletedTask;
+    }
+}

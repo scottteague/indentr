@@ -1,0 +1,9 @@
+@page "/note/{Id:guid}"
+
+<PageTitle>Note — Indentr</PageTitle>
+
+<NoteEditor NoteId="@Id" />
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+}

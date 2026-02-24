@@ -1,0 +1,96 @@
+@page "/scratchpad"
+@inject AppSession Session
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Scratchpad — Indentr</PageTitle>
+
+<div class="scratchpad-page">
+    <div class="note-header">
+        <h1 class="note-title">Scratchpad</h1>
+        <div class="note-actions">
+            @if (_saving)
+            {
+                <span class="status-text">Saving…</span>
+            }
+            else if (_conflictMessage is not null)
+            {
+                <span class="status-conflict">@_conflictMessage</span>
+            }
+            <button class="btn-save" @onclick="SaveAsync" disabled="@(_saving || _pad is null)">Save</button>
+        </div>
+    </div>
+    <div id="@_editorId" class="cm-host"></div>
+</div>
+
+@code {
+    private Scratchpad? _pad;
+    private bool   _saving;
+    private string? _conflictMessage;
+    private string _currentContent = "";
+    private string _editorId = "cm-scratchpad";
+
+    private IJSObjectReference?              _module;
+    private DotNetObjectReference<ScratchpadPage>? _dotNetRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Session.Scratchpads is null || Session.CurrentUser is null) return;
+        _pad = await Session.Scratchpads.GetOrCreateForUserAsync(Session.CurrentUser.Id);
+        _currentContent = _pad.Content;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _pad is null) return;
+        _module    = await JS.InvokeAsync<IJSObjectReference>("import", "/js/editor.js");
+        _dotNetRef = DotNetObjectReference.Create(this);
+        await _module.InvokeVoidAsync("create", _editorId, _pad.Content, _dotNetRef);
+    }
+
+    [JSInvokable] public void OnContentChanged(string content) => _currentContent = content;
+    [JSInvokable] public void OnLinkClicked(string target) { } // no-op for scratchpad
+
+    private async Task SaveAsync()
+    {
+        if (_pad is null || Session.Scratchpads is null) return;
+        _saving = true;
+        _conflictMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            _currentContent = await _module!.InvokeAsync<string>("getContent", _editorId);
+            _pad.Content = _currentContent;
+            var originalHash = _pad.ContentHash;
+            var result = await Session.Scratchpads.SaveAsync(_pad, originalHash);
+
+            if (result == SaveResult.Conflict)
+            {
+                _conflictMessage = "Conflict — reloading server version…";
+                _pad = await Session.Scratchpads.GetOrCreateForUserAsync(Session.CurrentUser!.Id);
+                await _module!.InvokeVoidAsync("setContent", _editorId, _pad.Content);
+            }
+            else
+            {
+                // Refresh hash
+                _pad = await Session.Scratchpads.GetOrCreateForUserAsync(Session.CurrentUser!.Id);
+            }
+        }
+        finally
+        {
+            _saving = false;
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            try { await _module.InvokeVoidAsync("destroy", _editorId); } catch { }
+            await _module.DisposeAsync();
+        }
+        _dotNetRef?.Dispose();
+    }
+}

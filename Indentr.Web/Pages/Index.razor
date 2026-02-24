@@ -1,0 +1,13 @@
+@page "/"
+@inject AppSession Session
+@inject NavigationManager Nav
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        if (Session.Notes is null || Session.CurrentUser is null) return;
+        var root = await Session.Notes.GetRootAsync(Session.CurrentUser.Id);
+        if (root is not null)
+            Nav.NavigateTo($"/note/{root.Id}");
+    }
+}

@@ -1,0 +1,52 @@
+@inject AppSession Session
+@inject NoteChangeNotifier Notifier
+@implements IAsyncDisposable
+
+@if (_root is not null)
+{
+    <div class="tree-sidebar">
+        <NoteTreeNodeComponent Node="_root" Depth="0" />
+    </div>
+}
+
+@code {
+    private NoteTreeNode? _root;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Notifier.NoteChanged += HandleChange;
+        await LoadRootAsync();
+    }
+
+    private async Task LoadRootAsync()
+    {
+        if (Session.Notes is null || Session.CurrentUser is null) return;
+        var root = await Session.Notes.GetRootAsync(Session.CurrentUser.Id);
+        if (root is null) return;
+
+        _root = new NoteTreeNode
+        {
+            Id          = root.Id,
+            Title       = root.Title,
+            CreatedBy   = root.CreatedBy,
+            IsPrivate   = root.IsPrivate,
+            HasChildren = true,
+            IsLoaded    = false
+        };
+    }
+
+    private void HandleChange(Guid id)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadRootAsync();
+            StateHasChanged();
+        });
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Notifier.NoteChanged -= HandleChange;
+        await ValueTask.CompletedTask;
+    }
+}

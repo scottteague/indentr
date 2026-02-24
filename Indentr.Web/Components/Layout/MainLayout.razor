@@ -1,0 +1,13 @@
+@inherits LayoutComponentBase
+
+<AppInitializer>
+    <div class="layout">
+        <aside class="sidebar">
+            <NoteTreeSidebar />
+        </aside>
+        <main class="content">
+            @Body
+        </main>
+    </div>
+    <SyncStatusBar />
+</AppInitializer>
