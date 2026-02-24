@@ -2,7 +2,8 @@ namespace Indentr.Data;
 
 public static class ConnectionStringBuilder
 {
-    public static string Build(string host, int port, string database, string username, string password)
+    public static string Build(string host, int port, string database,
+        string username, string password, string? searchPath = null)
     {
         var builder = new Npgsql.NpgsqlConnectionStringBuilder
         {
@@ -14,6 +15,8 @@ public static class ConnectionStringBuilder
             Pooling = true,
             MaxPoolSize = 10
         };
+        if (searchPath is not null)
+            builder.SearchPath = searchPath;
         return builder.ConnectionString;
     }
 

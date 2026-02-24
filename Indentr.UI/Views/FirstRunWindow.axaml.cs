@@ -17,6 +17,10 @@ public partial class FirstRunWindow : Window
     public FirstRunWindow(DatabaseProfile profile, bool isNew)
     {
         _profile = profile;
+
+        if (isNew && string.IsNullOrEmpty(_profile.LocalSchemaId))
+            _profile.LocalSchemaId = Guid.NewGuid().ToString("N");
+
         InitializeComponent();
 
         if (isNew)

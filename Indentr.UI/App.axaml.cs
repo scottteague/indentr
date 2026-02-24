@@ -61,10 +61,15 @@ public partial class App : Application
 
         CurrentProfile = profile;
 
-        // Build connection string and wire up repositories.
+        // Build local connection string, scoped to this profile's schema.
+        var schemaName = string.IsNullOrEmpty(profile.LocalSchemaId)
+            ? null
+            : $"indentr_{profile.LocalSchemaId}";
+
         var cs = ConnectionStringBuilder.Build(
             profile.Database.Host, profile.Database.Port,
-            profile.Database.Name, profile.Database.Username, profile.Database.Password);
+            profile.Database.Name, profile.Database.Username, profile.Database.Password,
+            schemaName);
 
         Notes       = new NoteRepository(cs);
         Users       = new UserRepository(cs);
@@ -79,7 +84,7 @@ public partial class App : Application
         // Migrate schema.
         try
         {
-            await new DatabaseMigrator(cs).MigrateAsync();
+            await new DatabaseMigrator(cs).MigrateAsync(schemaName);
         }
         catch (Exception ex)
         {
