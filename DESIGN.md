@@ -683,6 +683,7 @@ Trust-based, no authentication.
 3. The username is stored in the active profile in `~/.config/indentr/config.json` and sent with all database operations to identify the user.
 4. If the username does not exist in the `users` table, a new row is created automatically.
 5. Different profiles can use different usernames, allowing a single install to act as different identities against different databases.
+6. **UUID stability across machines** — each user has a stable UUID (`users.id`) that is referenced by all notes (`owner_id`, `created_by`). On startup, if a remote is configured and reachable, the app looks up the username on the remote first and adopts that UUID for the local user record. This ensures the same username resolves to the same UUID on every machine, which is required for sync correctness: the pull privacy filter (`created_by = userId`), the push upsert conflict key, and FK references all depend on UUID consistency. If the remote is unreachable at first launch, a fresh UUID is generated locally and will be adopted by other machines when they first sync and pull the user record.
 
 ---
 
@@ -868,7 +869,7 @@ For `attachments`, the existing `trg_attachment_lo_cleanup` (BEFORE DELETE) is u
    - Users referenced by `owner_id` / `created_by` are upserted on remote before any note that references them.
    - Attachment bytes are transferred via `lo_get` / `lo_from_bytea` (files are always uploaded to keep the remote the one true copy).
    - After confirming success, delete the sync_log entry.
-4. **Pull phase** — query the remote's current clock (`SELECT NOW()`) to use as the new watermark. Pull all entity rows where `updated_at > last_synced_at - 30s` (the 30-second safety buffer re-checks rows written in the milliseconds around `SELECT NOW()`, guarding against sub-second clock races). The notes pull query also applies a privacy filter: only rows where `created_by = userId OR is_private = FALSE` are fetched, so other users' private notes are never written to the current user's local database. For each pulled row:
+4. **Pull phase** — query the remote's current clock (`SELECT NOW()`) to use as the new watermark. Pull all entity rows where `updated_at > last_synced_at - 30s` (the 30-second safety buffer re-checks rows written in the milliseconds around `SELECT NOW()`, guarding against sub-second clock races). The notes pull query also applies a privacy filter: only rows where `created_by = userId OR is_private = FALSE` are fetched, so other users' private notes are never written to the current user's local database. `userId` here is the UUID adopted from the remote at startup (see [User Identification](#user-identification)), so the filter is correct even on a machine that was set up fresh — a mismatch between the local UUID and the remote UUID would cause private notes to be silently skipped and push/pull to fail on username unique-constraint collisions. For each pulled row:
    - If `content_hash` matches the local copy: skip — the row is already in sync. This covers notes just pushed in the same cycle, identical content on first sync, and buffer-overlap re-pulls, preventing false `[CONFLICT]` siblings in all three cases.
    - If the row does not exist locally: insert it.
    - If the row exists locally and has not changed since `last_synced_at`: update it.

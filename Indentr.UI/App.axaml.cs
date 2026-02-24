@@ -96,7 +96,25 @@ public partial class App : Application
         }
 
         // Ensure user and bootstrap data exist.
-        CurrentUser = await Users.GetOrCreateAsync(profile.Username);
+        // If the remote already knows this username, adopt its UUID so both machines share
+        // the same identity — otherwise a fresh local DB would generate a different UUID,
+        // causing username unique-constraint collisions during push/pull and the privacy
+        // filter (created_by = @userId) silently excluding the other machine's notes.
+        Guid? remoteUserId = null;
+        if (remoteCs is not null)
+        {
+            try
+            {
+                var connectErr = await ConnectionStringBuilder.TryConnectAsync(remoteCs);
+                if (connectErr is null)
+                    remoteUserId = (await new UserRepository(remoteCs).GetByUsernameAsync(profile.Username))?.Id;
+            }
+            catch { /* Remote unavailable — proceed with a local UUID. */ }
+        }
+
+        CurrentUser = remoteUserId.HasValue
+            ? await Users.GetOrCreateWithIdAsync(remoteUserId.Value, profile.Username)
+            : await Users.GetOrCreateAsync(profile.Username);
         await Notes.EnsureRootExistsAsync(CurrentUser.Id);
         await Scratchpads.GetOrCreateForUserAsync(CurrentUser.Id);
 
