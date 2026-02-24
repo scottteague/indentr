@@ -156,7 +156,7 @@ public class NoteRepository(string connectionString) : INoteRepository
             {
                 ParentId = parentId,
                 IsRoot = false,
-                Title = $"[CONFLICT] {note.Title}",
+                Title = $"⚠ CONFLICT: {note.Title}",
                 Content = note.Content,
                 OwnerId = note.OwnerId,
                 SortOrder = note.SortOrder + 1

@@ -41,9 +41,9 @@ public class MarkdownColorizer(FontFamily monoFamily, FontFamily proportionalFam
     // ── Brushes ───────────────────────────────────────────────────────────────
 
     private static readonly IBrush RedBrush       = Brushes.Red;
-    private static readonly IBrush NoteLinkBrush  = new SolidColorBrush(Color.FromRgb(0,  102, 204));
-    private static readonly IBrush KanbanBrush    = new SolidColorBrush(Color.FromRgb(128,  0, 200));
-    private static readonly IBrush ExtLinkBrush   = new SolidColorBrush(Color.FromRgb(30,  30, 200));
+    private static readonly IBrush NoteLinkBrush  = new SolidColorBrush(Color.FromRgb(100, 175, 255)); // light blue
+    private static readonly IBrush KanbanBrush    = new SolidColorBrush(Color.FromRgb(185, 120, 255)); // light purple
+    private static readonly IBrush ExtLinkBrush   = new SolidColorBrush(Color.FromRgb( 65, 210, 180)); // teal
     private static readonly IBrush CodeBg     = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128));
     private static readonly IBrush GreenBrush = new SolidColorBrush(Color.FromRgb(0, 160, 0));
 

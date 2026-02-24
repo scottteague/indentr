@@ -807,7 +807,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
             local);
         cmd.Parameters.AddWithValue("parentId", (object?)parentId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("title",
-            $"[CONFLICT] {rn.Title} (by {username} on {timestamp})");
+            $"⚠ CONFLICT: {rn.Title} (by {username} on {timestamp})");
         cmd.Parameters.AddWithValue("content", rn.Content);
         cmd.Parameters.AddWithValue("hash", rn.ContentHash);
         cmd.Parameters.AddWithValue("ownerId", rn.OwnerId);
