@@ -135,6 +135,7 @@ public partial class MainWindow : Window
         // Save the root note and all open note windows before restarting.
         await RootEditor.DoSave();
         await NotesWindow.CloseAllAsync();
+        await KanbanWindow.CloseAllAsync();
 
         // Restart the process; the current instance exits via Close().
         var exe = Environment.ProcessPath;
@@ -213,6 +214,7 @@ public partial class MainWindow : Window
         await RootEditor.DoSave();
         await NotesWindow.SaveAllAsync();
         await ScratchpadWindow.SaveAllAsync();
+        await KanbanWindow.CloseAllAsync();
         if (App.CurrentProfile.RemoteDatabase is not null)
             await App.Sync.SyncOnceAsync();
         _closing = true;

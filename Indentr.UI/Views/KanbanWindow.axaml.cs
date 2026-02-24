@@ -39,10 +39,12 @@ public partial class KanbanWindow : Window
     private Guid?                _selectedCardId;
     private Border?              _selectedBorder;
     private readonly Guid?       _sourceNoteId;   // note that hosts the kanban: link
+    private bool                 _closing;
 
     // Rebuilt by BuildBoardUI()
-    private readonly List<StackPanel>          _colCardPanels = new();
-    private readonly Dictionary<Guid, Border>  _cardBorders   = new();
+    private readonly List<StackPanel>                  _colCardPanels  = new();
+    private readonly Dictionary<Guid, Border>          _cardBorders    = new();
+    private readonly List<(KanbanColumn Col, TextBox Box)> _colTitleBoxes = new();
 
     private KanbanWindow(KanbanBoard board, List<KanbanColumn> columns, Guid? sourceNoteId)
     {
@@ -62,6 +64,7 @@ public partial class KanbanWindow : Window
         ColumnsPanel.Children.Clear();
         _colCardPanels.Clear();
         _cardBorders.Clear();
+        _colTitleBoxes.Clear();
 
         for (int ci = 0; ci < _columns.Count; ci++)
             ColumnsPanel.Children.Add(BuildColumnControl(_columns[ci]));
@@ -89,6 +92,7 @@ public partial class KanbanWindow : Window
             Watermark   = "Column title",
             Margin      = new Thickness(0, 0, 4, 0)
         };
+        _colTitleBoxes.Add((col, titleBox));
         titleBox.LostFocus += (_, _) =>
         {
             var newTitle = titleBox.Text?.Trim() ?? "";
@@ -546,6 +550,52 @@ public partial class KanbanWindow : Window
         await App.Kanban.DeleteColumnAsync(columnId);
         _columns.Remove(col);
         BuildBoardUI();
+    }
+
+    // ── Close: flush pending title edits, then close ─────────────────────────
+
+    public static async Task CloseAllAsync()
+    {
+        foreach (var win in _openBoards.Values.ToList())
+            await win.SaveAndCloseAsync();
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (!_closing)
+        {
+            e.Cancel = true;
+            _ = SaveAndCloseAsync();
+        }
+        base.OnClosing(e);
+    }
+
+    private async Task SaveAndCloseAsync()
+    {
+        await FlushPendingTitleEditsAsync();
+        _closing = true;
+        Close();
+    }
+
+    private async Task FlushPendingTitleEditsAsync()
+    {
+        var boardTitle = BoardTitleBox.Text?.Trim() ?? "";
+        if (!string.IsNullOrEmpty(boardTitle) && boardTitle != _board.Title)
+        {
+            _board.Title = boardTitle;
+            Title        = boardTitle;
+            await App.Kanban.UpdateBoardTitleAsync(_board.Id, boardTitle);
+        }
+
+        foreach (var (col, box) in _colTitleBoxes)
+        {
+            var colTitle = box.Text?.Trim() ?? "";
+            if (!string.IsNullOrEmpty(colTitle) && colTitle != col.Title)
+            {
+                col.Title = colTitle;
+                await App.Kanban.UpdateColumnTitleAsync(col.Id, colTitle);
+            }
+        }
     }
 
     // ── Board title ───────────────────────────────────────────────────────────
