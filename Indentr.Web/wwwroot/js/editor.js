@@ -69,15 +69,23 @@ function buildWysiwygDecorations(view) {
                     break;
                 }
 
-                // ── Bold ──────────────────────────────────────────────────────
-                case "StrongEmphasis":
-                    styleRanges.push(Decoration.mark({ class: "cm-md-strong" }).range(from, to));
+                // ── Bold (**) or Red (__) ─────────────────────────────────────
+                case "StrongEmphasis": {
+                    const firstMark = node.node.getChild("EmphasisMark");
+                    const markChar  = firstMark ? state.doc.sliceString(firstMark.from, firstMark.to) : "**";
+                    const cls = markChar === "__" ? "cm-md-red" : "cm-md-strong";
+                    styleRanges.push(Decoration.mark({ class: cls }).range(from, to));
                     break;
+                }
 
-                // ── Italic ────────────────────────────────────────────────────
-                case "Emphasis":
-                    styleRanges.push(Decoration.mark({ class: "cm-md-em" }).range(from, to));
+                // ── Italic (*) or Underline (_) ───────────────────────────────
+                case "Emphasis": {
+                    const firstMark = node.node.getChild("EmphasisMark");
+                    const markChar  = firstMark ? state.doc.sliceString(firstMark.from, firstMark.to) : "*";
+                    const cls = markChar === "_" ? "cm-md-underline" : "cm-md-em";
+                    styleRanges.push(Decoration.mark({ class: cls }).range(from, to));
                     break;
+                }
 
                 // ── Emphasis marks (* ** _ __) ────────────────────────────────
                 case "EmphasisMark":
@@ -107,7 +115,7 @@ function buildWysiwygDecorations(view) {
                         const url = state.doc.sliceString(urlNode.from, urlNode.to);
                         const cls = classForTarget(url);
                         styleRanges.push(
-                            Decoration.mark({ class: cls, attributes: { "data-link": url } })
+                            Decoration.mark({ class: `${cls} cm-md-link`, attributes: { "data-link": url } })
                                       .range(from, to)
                         );
                     }
@@ -209,10 +217,13 @@ export function create(elementId, initialContent, dotNetRef) {
         ".cm-md-h6": { fontSize: "0.9em", fontWeight: "bold",   fontStyle: "italic",  color: "var(--fg-muted, #888)" },
 
         // Inline styles
-        ".cm-md-strong": { fontWeight: "bold" },
-        ".cm-md-em":     { fontStyle: "italic" },
-        ".cm-md-strike": { textDecoration: "line-through", opacity: "0.7" },
-        ".cm-md-code":   { fontFamily: "monospace", background: "rgba(255,255,255,0.08)", borderRadius: "3px", padding: "0 3px" },
+        ".cm-md-strong":    { fontWeight: "bold" },
+        ".cm-md-red":       { color: "#ff0000" },
+        ".cm-md-em":        { fontStyle: "italic" },
+        ".cm-md-underline": { textDecoration: "underline" },
+        ".cm-md-strike":    { textDecoration: "line-through", opacity: "0.7" },
+        ".cm-md-code":      { fontFamily: "monospace", background: "rgba(255,255,255,0.08)", borderRadius: "3px", padding: "0 3px" },
+        ".cm-md-link":      { textDecoration: "underline" },
 
         // Blockquote line decoration
         ".cm-md-blockquote.cm-line": { borderLeft: "3px solid #555", paddingLeft: "12px", color: "var(--fg-muted, #888)", fontStyle: "italic" },
