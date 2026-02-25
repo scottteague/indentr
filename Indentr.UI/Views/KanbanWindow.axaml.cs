@@ -341,10 +341,12 @@ public partial class KanbanWindow : Window
                 _ = MoveCardToColumnAsync(_selectedCardId!.Value, ci, ci + 1);
                 e.Handled = true;
                 break;
-
+            // Open/Create Note
+            case Key.Return when noMod && ci >= 0:
+                _= OpenOrCreateNoteAsync(_columns[ci].Cards[ki]);
+                break;
             // Rename
             case Key.F2 when ci >= 0:
-            case Key.Return when noMod && ci >= 0:
                 _ = RenameCardAsync(_columns[ci].Cards[ki]);
                 e.Handled = true;
                 break;
