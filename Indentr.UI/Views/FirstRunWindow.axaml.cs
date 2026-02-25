@@ -137,6 +137,30 @@ public partial class FirstRunWindow : Window
         Close();
     }
 
+    private async void OnTestLocalConnectionClicked(object? sender, RoutedEventArgs e)
+    {
+        TestLocalConnectionButton.IsEnabled = false;
+        LocalTestResultText.IsVisible = false;
+
+        if (!int.TryParse(DbPortBox.Text, out var port) || port < 1 || port > 65535)
+        {
+            SetLocalTestResult(success: false, "Invalid port.");
+            TestLocalConnectionButton.IsEnabled = true;
+            return;
+        }
+
+        var cs = ConnectionStringBuilder.Build(
+            DbHostBox.Text?.Trim() ?? "",
+            port,
+            DbNameBox.Text?.Trim() ?? "",
+            DbUserBox.Text?.Trim() ?? "",
+            DbPasswordBox.Text ?? "");
+
+        var error = await ConnectionStringBuilder.TryConnectAsync(cs);
+        SetLocalTestResult(success: error is null, error ?? "Connected successfully.");
+        TestLocalConnectionButton.IsEnabled = true;
+    }
+
     private async void OnTestConnectionClicked(object? sender, RoutedEventArgs e)
     {
         TestConnectionButton.IsEnabled = false;
@@ -159,6 +183,13 @@ public partial class FirstRunWindow : Window
         var error = await ConnectionStringBuilder.TryConnectAsync(cs);
         SetTestResult(success: error is null, error ?? "Connected successfully.");
         TestConnectionButton.IsEnabled = true;
+    }
+
+    private void SetLocalTestResult(bool success, string message)
+    {
+        LocalTestResultText.Text       = message;
+        LocalTestResultText.Foreground = success ? Brushes.Green : Brushes.Red;
+        LocalTestResultText.IsVisible  = true;
     }
 
     private void SetTestResult(bool success, string message)

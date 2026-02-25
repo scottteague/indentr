@@ -105,11 +105,12 @@ public partial class App : Application
         {
             try
             {
-                var connectErr = await ConnectionStringBuilder.TryConnectAsync(remoteCs);
-                if (connectErr is null)
-                    remoteUserId = (await new UserRepository(remoteCs).GetByUsernameAsync(profile.Username))?.Id;
+                // Migrate the remote schema first so the users table is guaranteed to exist
+                // even if sync has never run against this remote before.
+                await new DatabaseMigrator(remoteCs).MigrateAsync();
+                remoteUserId = (await new UserRepository(remoteCs).GetByUsernameAsync(profile.Username))?.Id;
             }
-            catch { /* Remote unavailable — proceed with a local UUID. */ }
+            catch { /* Remote unavailable or migration failed — proceed with a local UUID. */ }
         }
 
         CurrentUser = remoteUserId.HasValue

@@ -267,7 +267,22 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         upsert.Parameters.AddWithValue("id", id);
         upsert.Parameters.AddWithValue("username", username);
         upsert.Parameters.AddWithValue("createdAt", createdAt);
-        await upsert.ExecuteNonQueryAsync();
+        try
+        {
+            await upsert.ExecuteNonQueryAsync();
+        }
+        catch (NpgsqlException ex) when (ex.SqlState == "23505") // unique_violation
+        {
+            // The remote already has a user with this username but a different UUID.
+            // This means the startup identity-adoption step (App.axaml.cs) did not run
+            // successfully — usually because the remote was unreachable at launch time.
+            // The fix: delete the local database and restart so the UUID can be adopted
+            // from the remote on the next launch.
+            throw new InvalidOperationException(
+                $"User identity conflict: username '{username}' exists on the remote server " +
+                $"with a different ID. Delete your local database and restart the app to " +
+                $"re-establish your identity from the remote.", ex);
+        }
     }
 
     // Pass 1 of 2: upsert without parent_id (always NULL). FixNoteParentIdsAsync is pass 2.

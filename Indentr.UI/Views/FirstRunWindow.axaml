@@ -31,6 +31,16 @@
         <TextBox x:Name="DbUserBox"     Watermark="PostgreSQL username" />
         <TextBox x:Name="DbPasswordBox" Watermark="Password (leave blank if none)" PasswordChar="●" />
 
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
+            <Button x:Name="TestLocalConnectionButton"
+                    Content="Test connection"
+                    Click="OnTestLocalConnectionClicked" />
+            <TextBlock x:Name="LocalTestResultText"
+                       VerticalAlignment="Center"
+                       TextWrapping="Wrap"
+                       IsVisible="False" />
+        </StackPanel>
+
         <Separator Margin="0,4,0,0" />
 
         <CheckBox x:Name="EnableRemoteBox"
