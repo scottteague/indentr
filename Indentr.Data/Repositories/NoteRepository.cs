@@ -74,6 +74,9 @@ public class NoteRepository(string connectionString) : INoteRepository
             $@"SELECT {SelectColumns} FROM notes
                WHERE parent_id IS NULL AND is_root = FALSE
                  AND (created_by = @userId OR is_private = FALSE)
+                 AND NOT EXISTS (SELECT 1 FROM kanban_cards WHERE note_id = notes.id)
+                 AND NOT EXISTS (SELECT 1 FROM notes linker
+                                 WHERE linker.content LIKE '%note:' || notes.id::text || '%')
                ORDER BY title", conn);
         cmd.Parameters.AddWithValue("userId", userId);
         return await ReadNotes(cmd);
@@ -276,11 +279,15 @@ public class NoteRepository(string connectionString) : INoteRepository
         var oldRefs = ExtractNoteRefs(oldContent);
         var newRefs = ExtractNoteRefs(newContent);
 
-        // Adopt: a link was added → if the target is currently orphaned, give it this note as parent
+        // Adopt: a link was added → if the target is currently orphaned, give it this note as parent.
+        // Skip notes already linked to a kanban card — those are anchored via the card and
+        // should not be pulled into the note tree just because a note happens to reference them.
         foreach (var addedId in newRefs.Except(oldRefs))
         {
             await using var adoptCmd = new NpgsqlCommand(
-                "UPDATE notes SET parent_id = @pid WHERE id = @id AND parent_id IS NULL AND is_root = FALSE", conn);
+                @"UPDATE notes SET parent_id = @pid
+                  WHERE id = @id AND parent_id IS NULL AND is_root = FALSE
+                    AND NOT EXISTS (SELECT 1 FROM kanban_cards WHERE note_id = notes.id)", conn);
             adoptCmd.Parameters.AddWithValue("pid", savedNoteId);
             adoptCmd.Parameters.AddWithValue("id", addedId);
             await adoptCmd.ExecuteNonQueryAsync();

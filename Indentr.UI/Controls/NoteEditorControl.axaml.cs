@@ -214,9 +214,11 @@ public partial class NoteEditorControl : UserControl
     {
         if (!e.GetCurrentPoint(Editor.TextArea.TextView).Properties.IsLeftButtonPressed) return;
 
-        // Get the document position from the click point (relative to the TextView)
+        // Get the document position from the click point.
+        // GetPosition expects document-space coordinates, so add the scroll offset to
+        // convert from the visual (viewport-relative) position returned by GetPosition(control).
         var point = e.GetPosition(Editor.TextArea.TextView);
-        var pos   = Editor.TextArea.TextView.GetPosition(point);
+        var pos   = Editor.TextArea.TextView.GetPosition(point + Editor.TextArea.TextView.ScrollOffset);
         if (pos is null) return;
 
         int offset = Editor.Document.GetOffset(pos.Value.Line, pos.Value.Column);
