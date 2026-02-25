@@ -126,6 +126,9 @@ public partial class MainWindow : Window
         new ManagementWindow().Show();
     }
 
+    private void OnTrashClicked(object? sender, RoutedEventArgs e) =>
+        new TrashWindow().Show();
+
     private async void OnManageProfilesClicked(object? sender, RoutedEventArgs e)
     {
         var config   = ConfigManager.Load();

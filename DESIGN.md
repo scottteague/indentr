@@ -68,8 +68,8 @@ Each in-app link click opens a **new Notes Form window**.
 
 The Notes Form provides a **Note → Delete Note…** menu item. Selecting it:
 
-1. Shows a confirmation dialog ("Are you sure?").
-2. On confirmation, deletes the note (children become orphans — same behaviour as deletion from the Management Form).
+1. Shows a confirmation dialog ("Move to Trash?").
+2. On confirmation, soft-deletes the note (sets `deleted_at`). The note disappears from the tree immediately but is recoverable from the **Trash Window**.
 3. Closes the Notes Form without saving.
 
 The root note cannot be deleted via this menu.
@@ -90,11 +90,29 @@ The Management Form opens on the **Tree Browser** tab by default. It switches to
 2. User browses the Tree Browser View and selects a parent note.
 3. Clicking **Insert Link in Parent Note** appends an in-app link (`[title](note:UUID)`) to the end of the parent note's content and saves it. The save mechanism detects the new link and sets the orphan's `parent_id` automatically.
 
-**Deletion** of notes is also available from this form (with confirmation dialog).
+**Deletion** of notes is also available from this form (confirmation dialog, moves to Trash).
+
+### 4. Trash Window
+
+Opened via **File → Trash…**. Displays all soft-deleted items in two tabs:
+
+| Tab     | Contents |
+|---------|----------|
+| Notes   | Trashed notes, sorted by deletion time (most recent first). |
+| Kanban  | Trashed boards, columns (only those whose board is active), and cards (only those whose column and board are active), each in a separate list. |
+
+Per-item actions:
+
+| Button | Behaviour |
+|--------|-----------|
+| **Restore** | Clears `deleted_at` on the selected item (and, for boards/columns, on all of their descendants). The item reappears in its original location. |
+| **Delete Permanently** | Shows a confirmation dialog, then issues a hard `DELETE`. This cannot be undone. For notes, DB cascades remove their attachments (which triggers `trg_attachment_lo_cleanup` to unlink the large objects). For boards, DB cascades remove columns and cards. |
+| **Empty Trash** | Permanently deletes everything currently in Trash, in safe FK order: cards → columns → boards → notes. |
+| **Refresh** | Reloads all four lists from the database. |
 
 ### Window Behaviour
 
-All Indentr windows (Main Form, Notes Form, Search Form, Management Form) are **independent peers** — no window is a child or owner of another. Any window can be brought to the front at any time without restriction.
+All Indentr windows (Main Form, Notes Form, Search Form, Management Form, Trash Window) are **independent peers** — no window is a child or owner of another. Any window can be brought to the front at any time without restriction.
 
 ---
 
@@ -143,7 +161,7 @@ A fixed strip at the bottom of the NoteEditorControl, visible whenever a note is
 |-------------|-----------|
 | **Open**    | Writes file to a system temp path and launches with `Process.Start` / `UseShellExecute`. |
 | **Save As…**| Opens a save-file picker; streams bytes directly to the chosen destination. |
-| **Delete**  | Confirmation dialog, then removes the attachment from the database permanently. |
+| **Delete**  | Confirmation dialog, then soft-deletes the attachment (sets `deleted_at`). The attachment disappears from the bar immediately. It is permanently removed only when the parent note is permanently deleted from Trash (DB cascade triggers `trg_attachment_lo_cleanup`). |
 
 #### New Child Note Button
 
@@ -211,6 +229,7 @@ The editor applies custom rendering on top of standard Markdown:
 | `sort_order`   | `INTEGER`       | Ordering among siblings. |
 | `created_at`   | `TIMESTAMPTZ`   | Row creation time. |
 | `updated_at`   | `TIMESTAMPTZ`   | Last modification time. |
+| `deleted_at`   | `TIMESTAMPTZ NULL` | Non-null when the note is in the Trash. NULL = active. Set by soft-delete; cleared on restore. |
 | `search_vector`| `TSVECTOR`      | Generated column for full-text search. |
 
 #### `attachments`
@@ -218,14 +237,15 @@ The editor applies custom rendering on top of standard Markdown:
 | Column       | Type           | Notes |
 |--------------|----------------|-------|
 | `id`         | `UUID` PK      | Auto-generated. |
-| `note_id`    | `UUID` FK      | References `notes.id`. `ON DELETE CASCADE` — attachments are removed with their note. |
+| `note_id`    | `UUID` FK      | References `notes.id`. `ON DELETE CASCADE` — attachments are hard-deleted when their note is permanently deleted. |
 | `lo_oid`     | `OID`          | Reference into `pg_largeobject` where the file bytes are stored. |
 | `filename`   | `TEXT`         | Original filename as provided by the user. |
 | `mime_type`  | `TEXT`         | MIME type (currently always `application/octet-stream`; stored for future use). |
 | `size`       | `BIGINT`       | File size in bytes at the time of upload. |
 | `created_at` | `TIMESTAMPTZ`  | Row creation time. |
+| `deleted_at` | `TIMESTAMPTZ NULL` | Non-null when soft-deleted. The large object is preserved until the attachment is permanently deleted. |
 
-Large object cleanup is handled by the `trg_attachment_lo_cleanup` trigger (`BEFORE DELETE`), which calls `lo_unlink(OLD.lo_oid)`. This fires for both explicit deletes and cascades from note deletion, preventing orphaned large objects in `pg_largeobject`.
+Large object cleanup is handled by the `trg_attachment_lo_cleanup` trigger (`BEFORE DELETE`), which calls `lo_unlink(OLD.lo_oid)`. This fires for hard DELETEs only (permanent delete from Trash, or cascade from permanently deleted note), preventing orphaned large objects in `pg_largeobject`. Soft-delete (UPDATE setting `deleted_at`) does **not** fire this trigger; the large object is preserved so the file can be recovered if the note or attachment is restored.
 
 #### `kanban_boards`
 
@@ -236,6 +256,7 @@ Large object cleanup is handled by the `trg_attachment_lo_cleanup` trigger (`BEF
 | `owner_id`   | `UUID` FK      | References `users.id`. `ON DELETE CASCADE`. |
 | `created_at` | `TIMESTAMPTZ`  | Row creation time. |
 | `updated_at` | `TIMESTAMPTZ`  | Last modification time. |
+| `deleted_at` | `TIMESTAMPTZ NULL` | Non-null when the board is in the Trash. |
 
 #### `kanban_columns`
 
@@ -245,6 +266,7 @@ Large object cleanup is handled by the `trg_attachment_lo_cleanup` trigger (`BEF
 | `board_id`   | `UUID` FK      | References `kanban_boards.id`. `ON DELETE CASCADE`. |
 | `title`      | `TEXT`         | Column header label. |
 | `sort_order` | `INTEGER`      | Display order among the board's columns. |
+| `deleted_at` | `TIMESTAMPTZ NULL` | Non-null when the column is in the Trash. |
 
 #### `kanban_cards`
 
@@ -256,6 +278,7 @@ Large object cleanup is handled by the `trg_attachment_lo_cleanup` trigger (`BEF
 | `note_id`    | `UUID` FK NULL | References `notes.id`. `ON DELETE SET NULL` — the card survives if its linked note is deleted. |
 | `sort_order` | `INTEGER`      | Display order within the column. |
 | `created_at` | `TIMESTAMPTZ`  | Row creation time. |
+| `deleted_at` | `TIMESTAMPTZ NULL` | Non-null when the card is in the Trash. |
 
 #### `scratchpads`
 
@@ -271,10 +294,15 @@ Large object cleanup is handled by the `trg_attachment_lo_cleanup` trigger (`BEF
 
 - `notes.parent_id` — for loading children of a node.
 - `notes.search_vector` — GIN index for full-text search.
-- `notes.(created_by) WHERE is_root = TRUE` — partial unique index; enforces one root per user (replaces the old single-root index).
+- `notes.(created_by) WHERE is_root = TRUE` — partial unique index; enforces one root per user.
 - `attachments.note_id` — for loading all attachments belonging to a note.
 - `kanban_columns.board_id` — for loading all columns of a board.
 - `kanban_cards.column_id` — for loading all cards within a column.
+- `notes(created_by, deleted_at) WHERE deleted_at IS NOT NULL` — partial index for Trash queries.
+- `kanban_boards(owner_id, deleted_at) WHERE deleted_at IS NOT NULL` — partial index for Trash queries.
+- `kanban_columns(board_id, deleted_at) WHERE deleted_at IS NOT NULL` — partial index for Trash queries.
+- `kanban_cards(column_id, deleted_at) WHERE deleted_at IS NOT NULL` — partial index for Trash queries.
+- `attachments(note_id, deleted_at) WHERE deleted_at IS NOT NULL` — partial index for Trash queries.
 
 ### Content Format (Raw Markdown)
 

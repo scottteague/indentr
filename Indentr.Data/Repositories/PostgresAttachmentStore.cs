@@ -12,8 +12,8 @@ public class PostgresAttachmentStore(string connectionString) : IAttachmentStore
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "SELECT id, note_id, filename, mime_type, size, created_at " +
-            "FROM attachments WHERE note_id = @noteId ORDER BY created_at",
+            "SELECT id, note_id, filename, mime_type, size, created_at, deleted_at " +
+            "FROM attachments WHERE note_id = @noteId AND deleted_at IS NULL ORDER BY created_at",
             conn);
         cmd.Parameters.AddWithValue("noteId", noteId);
         var results = new List<AttachmentMeta>();
@@ -31,15 +31,15 @@ public class PostgresAttachmentStore(string connectionString) : IAttachmentStore
         await using var tx = await conn.BeginTransactionAsync();
 
         await using var cmd = new NpgsqlCommand(
-            "SELECT id, note_id, filename, mime_type, size, created_at, lo_get(lo_oid) " +
-            "FROM attachments WHERE id = @id",
+            "SELECT id, note_id, filename, mime_type, size, created_at, deleted_at, lo_get(lo_oid) " +
+            "FROM attachments WHERE id = @id AND deleted_at IS NULL",
             conn);
         cmd.Parameters.AddWithValue("id", attachmentId);
         await using var r = await cmd.ExecuteReaderAsync();
         if (!await r.ReadAsync()) return null;
 
         var meta  = MapMeta(r);
-        var bytes = r.GetFieldValue<byte[]>(6);
+        var bytes = r.GetFieldValue<byte[]>(7);
         await r.CloseAsync();
 
         await tx.CommitAsync();
@@ -101,7 +101,17 @@ public class PostgresAttachmentStore(string connectionString) : IAttachmentStore
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
-        // trg_attachment_lo_cleanup calls lo_unlink() automatically on delete.
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE attachments SET deleted_at = NOW() WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("id", attachmentId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task PermanentlyDeleteAsync(Guid attachmentId)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+        // trg_attachment_lo_cleanup calls lo_unlink() automatically on hard delete.
         await using var cmd = new NpgsqlCommand(
             "DELETE FROM attachments WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("id", attachmentId);
@@ -115,6 +125,7 @@ public class PostgresAttachmentStore(string connectionString) : IAttachmentStore
         Filename  = r.GetString(2),
         MimeType  = r.GetString(3),
         Size      = r.GetInt64(4),
-        CreatedAt = r.GetDateTime(5)
+        CreatedAt = r.GetDateTime(5),
+        DeletedAt = r.IsDBNull(6) ? null : r.GetDateTime(6)
     };
 }

@@ -13,4 +13,5 @@ public interface IAttachmentStore
 
     Task<AttachmentMeta> StoreAsync(Guid noteId, string filename, string mimeType, Stream content);
     Task DeleteAsync(Guid attachmentId);
+    Task PermanentlyDeleteAsync(Guid attachmentId);
 }

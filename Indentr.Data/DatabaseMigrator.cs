@@ -49,6 +49,7 @@ public class DatabaseMigrator(string connectionString)
         yield return (3, ReadResource("Indentr.Data.Migrations.003_Attachments.sql"));
         yield return (4, ReadResource("Indentr.Data.Migrations.004_Kanban.sql"));
         yield return (5, ReadResource("Indentr.Data.Migrations.005_SyncLog.sql"));
+        yield return (6, ReadResource("Indentr.Data.Migrations.006_SoftDelete.sql"));
     }
 
     private static string ReadResource(string name)

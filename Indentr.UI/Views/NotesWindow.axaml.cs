@@ -134,8 +134,8 @@ public partial class NotesWindow : Window
         if (_note.IsRoot) return;
 
         var confirmed = await MessageBox.ShowConfirm(this,
-            "Delete Note",
-            $"Permanently delete \"{_note.Title}\"?\n\nAny child notes will become orphans.");
+            "Move to Trash",
+            $"Move \"{_note.Title}\" to Trash?\n\nThe note can be restored from Trash.");
         if (!confirmed) return;
 
         _deleted = true;

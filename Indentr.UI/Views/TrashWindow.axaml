@@ -1,0 +1,54 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Indentr.UI.Views.TrashWindow"
+        Icon="avares://Indentr.UI/Assets/icon.png"
+        Title="Trash"
+        Width="640" Height="520"
+        WindowStartupLocation="CenterScreen">
+
+    <DockPanel Margin="8">
+
+        <!-- Bottom toolbar -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    Spacing="8" Margin="0,8,0,0">
+            <Button x:Name="RestoreButton"    Content="Restore"             IsEnabled="False" Click="OnRestoreClicked" />
+            <Button x:Name="DeletePermButton" Content="Delete Permanently"  IsEnabled="False" Click="OnDeletePermanentlyClicked" />
+            <Button Content="Empty Trash"  Click="OnEmptyTrashClicked" />
+            <Button Content="Refresh"      Click="OnRefreshClicked" />
+        </StackPanel>
+
+        <!-- Tab control -->
+        <TabControl>
+
+            <!-- Notes tab -->
+            <TabItem Header="Notes">
+                <ListBox x:Name="NotesList"
+                         SelectionMode="Single"
+                         SelectionChanged="OnNotesSelectionChanged" />
+            </TabItem>
+
+            <!-- Kanban tab -->
+            <TabItem Header="Kanban">
+                <ScrollViewer>
+                    <StackPanel Spacing="12" Margin="4">
+                        <TextBlock Text="Boards" FontWeight="SemiBold" FontSize="13" />
+                        <ListBox x:Name="BoardsList" MinHeight="80"
+                                 SelectionMode="Single"
+                                 SelectionChanged="OnBoardsSelectionChanged" />
+
+                        <TextBlock Text="Columns" FontWeight="SemiBold" FontSize="13" />
+                        <ListBox x:Name="ColumnsList" MinHeight="80"
+                                 SelectionMode="Single"
+                                 SelectionChanged="OnColumnsSelectionChanged" />
+
+                        <TextBlock Text="Cards" FontWeight="SemiBold" FontSize="13" />
+                        <ListBox x:Name="CardsList" MinHeight="80"
+                                 SelectionMode="Single"
+                                 SelectionChanged="OnCardsSelectionChanged" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+        </TabControl>
+    </DockPanel>
+</Window>

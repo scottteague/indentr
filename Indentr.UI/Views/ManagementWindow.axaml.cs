@@ -68,8 +68,8 @@ public partial class ManagementWindow : Window
     private async void OnDeleteOrphanClicked(object? sender, RoutedEventArgs e)
     {
         if (_selectedOrphan is null) return;
-        var ok = await MessageBox.ShowConfirm(this, "Delete Note",
-            $"Permanently delete \"{_selectedOrphan.Title}\"?\nThis cannot be undone.");
+        var ok = await MessageBox.ShowConfirm(this, "Move to Trash",
+            $"Move \"{_selectedOrphan.Title}\" to Trash?\nThe note can be restored from Trash.");
         if (!ok) return;
 
         await App.Notes.DeleteAsync(_selectedOrphan.Id);

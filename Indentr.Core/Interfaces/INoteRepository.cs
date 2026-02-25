@@ -14,6 +14,9 @@ public interface INoteRepository
     Task<Note> CreateAsync(Note note);
     Task<SaveResult> SaveAsync(Note note, string originalHash);
     Task DeleteAsync(Guid id);
+    Task<IEnumerable<Note>> GetTrashedAsync(Guid userId);
+    Task RestoreAsync(Guid id);
+    Task PermanentlyDeleteAsync(Guid id);
     Task EnsureRootExistsAsync(Guid ownerId);
     /// <summary>Updates the display text of every in-app link pointing to noteId
     /// to use newTitle. Returns the IDs of all notes whose content was changed.</summary>

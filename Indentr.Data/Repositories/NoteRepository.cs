@@ -10,14 +10,14 @@ namespace Indentr.Data.Repositories;
 public class NoteRepository(string connectionString) : INoteRepository
 {
     private const string SelectColumns =
-        "id, parent_id, is_root, title, content, content_hash, owner_id, sort_order, created_at, updated_at, created_by, is_private";
+        "id, parent_id, is_root, title, content, content_hash, owner_id, sort_order, created_at, updated_at, created_by, is_private, deleted_at";
 
     public async Task<Note?> GetByIdAsync(Guid id)
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            $"SELECT {SelectColumns} FROM notes WHERE id = @id", conn);
+            $"SELECT {SelectColumns} FROM notes WHERE id = @id AND deleted_at IS NULL", conn);
         cmd.Parameters.AddWithValue("id", id);
         await using var r = await cmd.ExecuteReaderAsync();
         return await r.ReadAsync() ? MapNote(r) : null;
@@ -28,7 +28,7 @@ public class NoteRepository(string connectionString) : INoteRepository
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            $"SELECT {SelectColumns} FROM notes WHERE is_root = TRUE AND created_by = @userId", conn);
+            $"SELECT {SelectColumns} FROM notes WHERE is_root = TRUE AND created_by = @userId AND deleted_at IS NULL", conn);
         cmd.Parameters.AddWithValue("userId", userId);
         await using var r = await cmd.ExecuteReaderAsync();
         return await r.ReadAsync() ? MapNote(r) : null;
@@ -41,11 +41,13 @@ public class NoteRepository(string connectionString) : INoteRepository
         await using var cmd = new NpgsqlCommand(
             @"SELECT n.id, n.parent_id, n.title, n.sort_order,
                      EXISTS(SELECT 1 FROM notes c WHERE c.parent_id = n.id
-                            AND (c.created_by = @userId OR c.is_private = FALSE)) AS has_children,
+                            AND (c.created_by = @userId OR c.is_private = FALSE)
+                            AND c.deleted_at IS NULL) AS has_children,
                      n.created_by, n.is_private
               FROM notes n
               WHERE n.parent_id = @parentId
                 AND (n.created_by = @userId OR n.is_private = FALSE)
+                AND n.deleted_at IS NULL
               ORDER BY n.sort_order, n.title", conn);
         cmd.Parameters.AddWithValue("parentId", parentId);
         cmd.Parameters.AddWithValue("userId", userId);
@@ -73,10 +75,12 @@ public class NoteRepository(string connectionString) : INoteRepository
         await using var cmd = new NpgsqlCommand(
             $@"SELECT {SelectColumns} FROM notes
                WHERE parent_id IS NULL AND is_root = FALSE
+                 AND deleted_at IS NULL
                  AND (created_by = @userId OR is_private = FALSE)
                  AND NOT EXISTS (SELECT 1 FROM kanban_cards WHERE note_id = notes.id)
                  AND NOT EXISTS (SELECT 1 FROM notes linker
-                                 WHERE linker.content LIKE '%note:' || notes.id::text || '%')
+                                 WHERE linker.content LIKE '%note:' || notes.id::text || '%'
+                                   AND linker.deleted_at IS NULL)
                ORDER BY title", conn);
         cmd.Parameters.AddWithValue("userId", userId);
         return await ReadNotes(cmd);
@@ -91,6 +95,7 @@ public class NoteRepository(string connectionString) : INoteRepository
             $@"SELECT {SelectColumns} FROM notes
                WHERE search_vector @@ plainto_tsquery('english', @query)
                  AND (created_by = @userId OR is_private = FALSE)
+                 AND deleted_at IS NULL
                ORDER BY ts_rank(search_vector, plainto_tsquery('english', @query)) DESC
                LIMIT 50", conn);
         cmd.Parameters.AddWithValue("query", query);
@@ -194,7 +199,41 @@ public class NoteRepository(string connectionString) : INoteRepository
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
-        // Children are orphaned by the ON DELETE SET NULL FK
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE notes SET deleted_at = NOW(), updated_at = NOW() WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("id", id);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task<IEnumerable<Note>> GetTrashedAsync(Guid userId)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            $@"SELECT {SelectColumns} FROM notes
+               WHERE deleted_at IS NOT NULL
+                 AND is_root = FALSE
+                 AND (created_by = @userId OR is_private = FALSE)
+               ORDER BY deleted_at DESC", conn);
+        cmd.Parameters.AddWithValue("userId", userId);
+        return await ReadNotes(cmd);
+    }
+
+    public async Task RestoreAsync(Guid id)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE notes SET deleted_at = NULL, updated_at = NOW() WHERE id = @id", conn);
+        cmd.Parameters.AddWithValue("id", id);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    public async Task PermanentlyDeleteAsync(Guid id)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+        // Attachments cascade via DB FK; trg_attachment_lo_cleanup handles LO unlink.
         await using var cmd = new NpgsqlCommand("DELETE FROM notes WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("id", id);
         await cmd.ExecuteNonQueryAsync();
@@ -287,6 +326,7 @@ public class NoteRepository(string connectionString) : INoteRepository
             await using var adoptCmd = new NpgsqlCommand(
                 @"UPDATE notes SET parent_id = @pid
                   WHERE id = @id AND parent_id IS NULL AND is_root = FALSE
+                    AND deleted_at IS NULL
                     AND NOT EXISTS (SELECT 1 FROM kanban_cards WHERE note_id = notes.id)", conn);
             adoptCmd.Parameters.AddWithValue("pid", savedNoteId);
             adoptCmd.Parameters.AddWithValue("id", addedId);
@@ -299,7 +339,7 @@ public class NoteRepository(string connectionString) : INoteRepository
         var candidates = oldRefs.Except(newRefs).ToHashSet();
 
         await using var childCmd = new NpgsqlCommand(
-            "SELECT id FROM notes WHERE parent_id = @pid AND is_root = FALSE", conn);
+            "SELECT id FROM notes WHERE parent_id = @pid AND is_root = FALSE AND deleted_at IS NULL", conn);
         childCmd.Parameters.AddWithValue("pid", savedNoteId);
         await using var childReader = await childCmd.ExecuteReaderAsync();
         while (await childReader.ReadAsync())
@@ -308,9 +348,9 @@ public class NoteRepository(string connectionString) : INoteRepository
 
         foreach (var noteId in candidates)
         {
-            // Find any note that still links to this candidate.
+            // Find any non-deleted note that still links to this candidate.
             await using var linkerCmd = new NpgsqlCommand(
-                "SELECT id FROM notes WHERE content LIKE @p LIMIT 1", conn);
+                "SELECT id FROM notes WHERE content LIKE @p AND deleted_at IS NULL LIMIT 1", conn);
             linkerCmd.Parameters.AddWithValue("p", $"%note:{noteId}%");
             var linkerIdRaw = await linkerCmd.ExecuteScalarAsync();
 
@@ -359,7 +399,8 @@ public class NoteRepository(string connectionString) : INoteRepository
         CreatedAt   = r.GetDateTime(8),
         UpdatedAt   = r.GetDateTime(9),
         CreatedBy   = r.GetGuid(10),
-        IsPrivate   = r.GetBoolean(11)
+        IsPrivate   = r.GetBoolean(11),
+        DeletedAt   = r.IsDBNull(12) ? null : r.GetDateTime(12)
     };
 
     private static string ComputeHash(string content) =>

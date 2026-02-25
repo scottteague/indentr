@@ -454,7 +454,7 @@ public partial class KanbanWindow : Window
 
     private async Task DeleteCardAsync(KanbanCard card)
     {
-        var confirmed = await MessageBox.ShowConfirm(this, "Delete Card", $"Delete \"{card.Title}\"?");
+        var confirmed = await MessageBox.ShowConfirm(this, "Move to Trash", $"Move \"{card.Title}\" to Trash?");
         if (!confirmed) return;
 
         if (_selectedCardId == card.Id) { _selectedCardId = null; _selectedBorder = null; }
@@ -499,6 +499,18 @@ public partial class KanbanWindow : Window
 
     // ── Column operations ─────────────────────────────────────────────────────
 
+    private async void OnDeleteBoardClick(object? sender, RoutedEventArgs e)
+    {
+        var msg = $"Move board \"{_board.Title}\" and all its columns and cards to Trash?";
+        var confirmed = await MessageBox.ShowConfirm(this, "Move to Trash", msg);
+        if (!confirmed) return;
+
+        await FlushPendingTitleEditsAsync();
+        await App.Kanban.DeleteBoardAsync(_board.Id);
+        _closing = true;
+        Close();
+    }
+
     private async void OnAddColumnClick(object? sender, RoutedEventArgs e)
     {
         var title = await InputDialog.ShowAsync(this, "Add Column", "Column title:");
@@ -513,10 +525,10 @@ public partial class KanbanWindow : Window
     {
         var col = _columns.First(c => c.Id == columnId);
         var msg = col.Cards.Count > 0
-            ? $"Delete column \"{col.Title}\" and its {col.Cards.Count} card(s)?"
-            : $"Delete column \"{col.Title}\"?";
+            ? $"Move column \"{col.Title}\" and its {col.Cards.Count} card(s) to Trash?"
+            : $"Move column \"{col.Title}\" to Trash?";
 
-        var confirmed = await MessageBox.ShowConfirm(this, "Delete Column", msg);
+        var confirmed = await MessageBox.ShowConfirm(this, "Move to Trash", msg);
         if (!confirmed) return;
 
         if (_selectedCardId.HasValue && col.Cards.Any(c => c.Id == _selectedCardId.Value))

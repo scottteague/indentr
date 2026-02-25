@@ -8,4 +8,5 @@ public class KanbanCard
     public Guid? NoteId { get; set; }
     public int SortOrder { get; set; }
     public DateTime CreatedAt { get; set; }
+    public DateTime? DeletedAt { get; set; }
 }

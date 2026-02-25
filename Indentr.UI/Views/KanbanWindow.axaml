@@ -17,6 +17,8 @@
                      LostFocus="OnBoardTitleLostFocus" />
             <Button Content="+ Column" Click="OnAddColumnClick"
                     ToolTip.Tip="Add a new column to the board" />
+            <Button Content="Delete Board" Click="OnDeleteBoardClick"
+                    ToolTip.Tip="Move this board (and all its columns and cards) to Trash" />
         </StackPanel>
 
         <!-- Hint bar -->

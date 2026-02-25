@@ -292,7 +292,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     {
         await using var cmd = new NpgsqlCommand(
             @"SELECT is_root, title, content, content_hash, owner_id, created_by,
-                     is_private, sort_order, created_at, updated_at
+                     is_private, sort_order, created_at, updated_at, deleted_at
               FROM notes WHERE id = @id",
             local);
         cmd.Parameters.AddWithValue("id", id);
@@ -303,16 +303,17 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
             Content:   r.GetString(2),   Hash:      r.GetString(3),
             OwnerId:   r.GetGuid(4),     CreatedBy: r.GetGuid(5),
             IsPrivate: r.GetBoolean(6),  SortOrder: r.GetInt32(7),
-            CreatedAt: r.GetDateTime(8), UpdatedAt: r.GetDateTime(9));
+            CreatedAt: r.GetDateTime(8), UpdatedAt: r.GetDateTime(9),
+            DeletedAt: r.IsDBNull(10) ? (DateTime?)null : r.GetDateTime(10));
         await r.CloseAsync();
 
         await using var upsert = new NpgsqlCommand(
             @"INSERT INTO notes
                 (id, parent_id, is_root, title, content, content_hash,
-                 owner_id, created_by, is_private, sort_order, created_at, updated_at)
+                 owner_id, created_by, is_private, sort_order, created_at, updated_at, deleted_at)
               VALUES
                 (@id, NULL, @isRoot, @title, @content, @hash,
-                 @ownerId, @createdBy, @isPrivate, @sortOrder, @createdAt, @updatedAt)
+                 @ownerId, @createdBy, @isPrivate, @sortOrder, @createdAt, @updatedAt, @deletedAt)
               ON CONFLICT (id) DO UPDATE SET
                 is_root      = EXCLUDED.is_root,
                 title        = EXCLUDED.title,
@@ -321,7 +322,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                 owner_id     = EXCLUDED.owner_id,
                 is_private   = EXCLUDED.is_private,
                 sort_order   = EXCLUDED.sort_order,
-                updated_at   = EXCLUDED.updated_at",
+                updated_at   = EXCLUDED.updated_at,
+                deleted_at   = EXCLUDED.deleted_at",
             remote);
         upsert.Parameters.AddWithValue("id", id);
         upsert.Parameters.AddWithValue("isRoot", row.IsRoot);
@@ -334,6 +336,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         upsert.Parameters.AddWithValue("sortOrder", row.SortOrder);
         upsert.Parameters.AddWithValue("createdAt", row.CreatedAt);
         upsert.Parameters.AddWithValue("updatedAt", row.UpdatedAt);
+        upsert.Parameters.AddWithValue("deletedAt", (object?)row.DeletedAt ?? DBNull.Value);
         await upsert.ExecuteNonQueryAsync();
     }
 
@@ -392,27 +395,30 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         NpgsqlConnection local, NpgsqlConnection remote, Guid id)
     {
         await using var cmd = new NpgsqlCommand(
-            "SELECT title, owner_id, created_at, updated_at FROM kanban_boards WHERE id = @id",
+            "SELECT title, owner_id, created_at, updated_at, deleted_at FROM kanban_boards WHERE id = @id",
             local);
         cmd.Parameters.AddWithValue("id", id);
         await using var r = await cmd.ExecuteReaderAsync();
         if (!await r.ReadAsync()) return;
-        var (title, ownerId, createdAt, updatedAt) =
-            (r.GetString(0), r.GetGuid(1), r.GetDateTime(2), r.GetDateTime(3));
+        var (title, ownerId, createdAt, updatedAt, deletedAt) = (
+            r.GetString(0), r.GetGuid(1), r.GetDateTime(2), r.GetDateTime(3),
+            r.IsDBNull(4) ? (DateTime?)null : r.GetDateTime(4));
         await r.CloseAsync();
 
         await using var upsert = new NpgsqlCommand(
-            @"INSERT INTO kanban_boards (id, title, owner_id, created_at, updated_at)
-              VALUES (@id, @title, @ownerId, @createdAt, @updatedAt)
+            @"INSERT INTO kanban_boards (id, title, owner_id, created_at, updated_at, deleted_at)
+              VALUES (@id, @title, @ownerId, @createdAt, @updatedAt, @deletedAt)
               ON CONFLICT (id) DO UPDATE SET
                 title      = EXCLUDED.title,
-                updated_at = EXCLUDED.updated_at",
+                updated_at = EXCLUDED.updated_at,
+                deleted_at = EXCLUDED.deleted_at",
             remote);
         upsert.Parameters.AddWithValue("id", id);
         upsert.Parameters.AddWithValue("title", title);
         upsert.Parameters.AddWithValue("ownerId", ownerId);
         upsert.Parameters.AddWithValue("createdAt", createdAt);
         upsert.Parameters.AddWithValue("updatedAt", updatedAt);
+        upsert.Parameters.AddWithValue("deletedAt", (object?)deletedAt ?? DBNull.Value);
         await upsert.ExecuteNonQueryAsync();
     }
 
@@ -420,29 +426,32 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         NpgsqlConnection local, NpgsqlConnection remote, Guid id)
     {
         await using var cmd = new NpgsqlCommand(
-            "SELECT board_id, title, sort_order, updated_at FROM kanban_columns WHERE id = @id",
+            "SELECT board_id, title, sort_order, updated_at, deleted_at FROM kanban_columns WHERE id = @id",
             local);
         cmd.Parameters.AddWithValue("id", id);
         await using var r = await cmd.ExecuteReaderAsync();
         if (!await r.ReadAsync()) return;
-        var (boardId, title, sortOrder, updatedAt) =
-            (r.GetGuid(0), r.GetString(1), r.GetInt32(2), r.GetDateTime(3));
+        var (boardId, title, sortOrder, updatedAt, deletedAt) = (
+            r.GetGuid(0), r.GetString(1), r.GetInt32(2), r.GetDateTime(3),
+            r.IsDBNull(4) ? (DateTime?)null : r.GetDateTime(4));
         await r.CloseAsync();
 
         await using var upsert = new NpgsqlCommand(
-            @"INSERT INTO kanban_columns (id, board_id, title, sort_order, updated_at)
-              VALUES (@id, @boardId, @title, @sortOrder, @updatedAt)
+            @"INSERT INTO kanban_columns (id, board_id, title, sort_order, updated_at, deleted_at)
+              VALUES (@id, @boardId, @title, @sortOrder, @updatedAt, @deletedAt)
               ON CONFLICT (id) DO UPDATE SET
                 board_id   = EXCLUDED.board_id,
                 title      = EXCLUDED.title,
                 sort_order = EXCLUDED.sort_order,
-                updated_at = EXCLUDED.updated_at",
+                updated_at = EXCLUDED.updated_at,
+                deleted_at = EXCLUDED.deleted_at",
             remote);
         upsert.Parameters.AddWithValue("id", id);
         upsert.Parameters.AddWithValue("boardId", boardId);
         upsert.Parameters.AddWithValue("title", title);
         upsert.Parameters.AddWithValue("sortOrder", sortOrder);
         upsert.Parameters.AddWithValue("updatedAt", updatedAt);
+        upsert.Parameters.AddWithValue("deletedAt", (object?)deletedAt ?? DBNull.Value);
         await upsert.ExecuteNonQueryAsync();
     }
 
@@ -450,29 +459,31 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         NpgsqlConnection local, NpgsqlConnection remote, Guid id)
     {
         await using var cmd = new NpgsqlCommand(
-            @"SELECT column_id, title, note_id, sort_order, created_at, updated_at
+            @"SELECT column_id, title, note_id, sort_order, created_at, updated_at, deleted_at
               FROM kanban_cards WHERE id = @id",
             local);
         cmd.Parameters.AddWithValue("id", id);
         await using var r = await cmd.ExecuteReaderAsync();
         if (!await r.ReadAsync()) return;
-        var (columnId, title, noteId, sortOrder, createdAt, updatedAt) = (
+        var (columnId, title, noteId, sortOrder, createdAt, updatedAt, deletedAt) = (
             r.GetGuid(0), r.GetString(1),
             r.IsDBNull(2) ? (Guid?)null : r.GetGuid(2),
-            r.GetInt32(3), r.GetDateTime(4), r.GetDateTime(5));
+            r.GetInt32(3), r.GetDateTime(4), r.GetDateTime(5),
+            r.IsDBNull(6) ? (DateTime?)null : r.GetDateTime(6));
         await r.CloseAsync();
 
         await using var upsert = new NpgsqlCommand(
             @"INSERT INTO kanban_cards
-                (id, column_id, title, note_id, sort_order, created_at, updated_at)
+                (id, column_id, title, note_id, sort_order, created_at, updated_at, deleted_at)
               VALUES
-                (@id, @columnId, @title, @noteId, @sortOrder, @createdAt, @updatedAt)
+                (@id, @columnId, @title, @noteId, @sortOrder, @createdAt, @updatedAt, @deletedAt)
               ON CONFLICT (id) DO UPDATE SET
                 column_id  = EXCLUDED.column_id,
                 title      = EXCLUDED.title,
                 note_id    = EXCLUDED.note_id,
                 sort_order = EXCLUDED.sort_order,
-                updated_at = EXCLUDED.updated_at",
+                updated_at = EXCLUDED.updated_at,
+                deleted_at = EXCLUDED.deleted_at",
             remote);
         upsert.Parameters.AddWithValue("id", id);
         upsert.Parameters.AddWithValue("columnId", columnId);
@@ -481,47 +492,63 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         upsert.Parameters.AddWithValue("sortOrder", sortOrder);
         upsert.Parameters.AddWithValue("createdAt", createdAt);
         upsert.Parameters.AddWithValue("updatedAt", updatedAt);
+        upsert.Parameters.AddWithValue("deletedAt", (object?)deletedAt ?? DBNull.Value);
         await upsert.ExecuteNonQueryAsync();
     }
 
     // Attachments use PostgreSQL Large Objects whose OIDs are server-local, so we cannot
     // simply copy the lo_oid value across databases. Instead we:
-    //   1. Read the bytes from the local LO using lo_get() (requires a transaction).
-    //   2. Delete any existing remote row inside a transaction (trigger calls lo_unlink).
-    //   3. Create a fresh LO on remote using lo_from_bytea() and insert the metadata row
-    //      (same transaction, so it rolls back atomically if lo_from_bytea fails).
+    //   1. Read the bytes (and deleted_at) from the local LO using lo_get() (requires a transaction).
+    //   2a. If soft-deleted: just propagate the deleted_at flag to remote without touching the LO.
+    //   2b. If active: delete any existing remote row (trigger calls lo_unlink), create a fresh LO
+    //       on remote using lo_from_bytea(), and insert the metadata row (same transaction).
     // This guarantees the remote always holds a complete, self-consistent copy of the file.
     private static async Task UpsertAttachmentAsync(string localCs, string remoteCs, Guid id)
     {
         // Step 1 — read metadata and bytes from local (lo_get requires a transaction).
-        byte[]   bytes;
-        Guid     noteId;
-        string   filename, mimeType;
-        long     size;
-        DateTime createdAt;
+        byte[]?   bytes    = null;
+        Guid      noteId   = Guid.Empty;
+        string    filename = "", mimeType = "";
+        long      size     = 0;
+        DateTime  createdAt = default;
+        DateTime? deletedAt = null;
 
         await using (var conn = new NpgsqlConnection(localCs))
         {
             await conn.OpenAsync();
             await using var tx = await conn.BeginTransactionAsync();
             await using var cmd = new NpgsqlCommand(
-                "SELECT note_id, filename, mime_type, size, created_at, lo_get(lo_oid) " +
+                "SELECT note_id, filename, mime_type, size, created_at, deleted_at, lo_get(lo_oid) " +
                 "FROM attachments WHERE id = @id",
                 conn);
             cmd.Parameters.AddWithValue("id", id);
             await using var r = await cmd.ExecuteReaderAsync();
-            if (!await r.ReadAsync()) return; // deleted locally; a DELETE sync_log entry handles remote
+            if (!await r.ReadAsync()) return; // hard-deleted locally; DELETE sync_log entry handles remote
             noteId    = r.GetGuid(0);
             filename  = r.GetString(1);
             mimeType  = r.GetString(2);
             size      = r.GetInt64(3);
             createdAt = r.GetDateTime(4);
-            bytes     = r.GetFieldValue<byte[]>(5);
+            deletedAt = r.IsDBNull(5) ? (DateTime?)null : r.GetDateTime(5);
+            bytes     = r.GetFieldValue<byte[]>(6);
             await r.CloseAsync();
             await tx.CommitAsync();
         }
 
-        // Step 2+3 — upload to remote in a single transaction so failure leaves nothing orphaned.
+        // Step 2a — soft-deleted: propagate the flag without destroying the remote LO.
+        if (deletedAt is not null)
+        {
+            await using var conn = new NpgsqlConnection(remoteCs);
+            await conn.OpenAsync();
+            await using var upd = new NpgsqlCommand(
+                "UPDATE attachments SET deleted_at = @dat WHERE id = @id", conn);
+            upd.Parameters.AddWithValue("dat", deletedAt.Value);
+            upd.Parameters.AddWithValue("id", id);
+            await upd.ExecuteNonQueryAsync();
+            return;
+        }
+
+        // Step 2b+3 — active attachment: upload to remote in a single transaction.
         // lo_from_bytea() requires an active transaction.
         await using (var conn = new NpgsqlConnection(remoteCs))
         {
@@ -541,7 +568,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
             uint newOid;
             await using (var loCmd = new NpgsqlCommand("SELECT lo_from_bytea(0, @data)", conn))
             {
-                loCmd.Parameters.Add(new NpgsqlParameter("data", NpgsqlDbType.Bytea) { Value = bytes });
+                loCmd.Parameters.Add(new NpgsqlParameter("data", NpgsqlDbType.Bytea) { Value = bytes! });
                 await using var loReader = await loCmd.ExecuteReaderAsync();
                 await loReader.ReadAsync();
                 newOid = loReader.GetFieldValue<uint>(0);
@@ -600,7 +627,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     private record RemoteNote(
         Guid Id, Guid? ParentId, bool IsRoot, string Title, string Content, string ContentHash,
         Guid OwnerId, Guid CreatedBy, bool IsPrivate, int SortOrder,
-        DateTime CreatedAt, DateTime UpdatedAt);
+        DateTime CreatedAt, DateTime UpdatedAt, DateTime? DeletedAt);
 
     private static async Task PullAsync(
         NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset lastSyncedAt, Guid userId)
@@ -656,7 +683,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         var remoteNotes = new List<RemoteNote>();
         await using (var cmd = new NpgsqlCommand(
             @"SELECT id, parent_id, is_root, title, content, content_hash,
-                     owner_id, created_by, is_private, sort_order, created_at, updated_at
+                     owner_id, created_by, is_private, sort_order, created_at, updated_at, deleted_at
               FROM notes
               WHERE updated_at > @since
                 AND (created_by = @userId OR is_private = FALSE)",
@@ -671,7 +698,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                     r.IsDBNull(1) ? null : r.GetGuid(1),
                     r.GetBoolean(2), r.GetString(3), r.GetString(4), r.GetString(5),
                     r.GetGuid(6), r.GetGuid(7), r.GetBoolean(8), r.GetInt32(9),
-                    r.GetDateTime(10), r.GetDateTime(11)));
+                    r.GetDateTime(10), r.GetDateTime(11),
+                    r.IsDBNull(12) ? (DateTime?)null : r.GetDateTime(12)));
         }
 
         if (remoteNotes.Count == 0) return;
@@ -747,10 +775,10 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         await using var cmd = new NpgsqlCommand(
             @"INSERT INTO notes
                 (id, parent_id, is_root, title, content, content_hash,
-                 owner_id, created_by, is_private, sort_order, created_at, updated_at)
+                 owner_id, created_by, is_private, sort_order, created_at, updated_at, deleted_at)
               VALUES
                 (@id, NULL, @isRoot, @title, @content, @hash,
-                 @ownerId, @createdBy, @isPrivate, @sortOrder, @createdAt, @updatedAt)
+                 @ownerId, @createdBy, @isPrivate, @sortOrder, @createdAt, @updatedAt, @deletedAt)
               ON CONFLICT (id) DO NOTHING",
             local);
         cmd.Parameters.AddWithValue("id", rn.Id);
@@ -764,6 +792,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         cmd.Parameters.AddWithValue("sortOrder", rn.SortOrder);
         cmd.Parameters.AddWithValue("createdAt", rn.CreatedAt);
         cmd.Parameters.AddWithValue("updatedAt", rn.UpdatedAt);
+        cmd.Parameters.AddWithValue("deletedAt", (object?)rn.DeletedAt ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -780,7 +809,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                 owner_id     = @ownerId,
                 is_private   = @isPrivate,
                 sort_order   = @sortOrder,
-                updated_at   = @updatedAt
+                updated_at   = @updatedAt,
+                deleted_at   = @deletedAt
               WHERE id = @id",
             local);
         cmd.Parameters.AddWithValue("id", rn.Id);
@@ -792,6 +822,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         cmd.Parameters.AddWithValue("isPrivate", rn.IsPrivate);
         cmd.Parameters.AddWithValue("sortOrder", rn.SortOrder);
         cmd.Parameters.AddWithValue("updatedAt", rn.UpdatedAt);
+        cmd.Parameters.AddWithValue("deletedAt", (object?)rn.DeletedAt ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -902,29 +933,32 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset safetyFilterSince)
     {
         await using var cmd = new NpgsqlCommand(
-            "SELECT id, title, owner_id, created_at, updated_at FROM kanban_boards WHERE updated_at > @since",
+            "SELECT id, title, owner_id, created_at, updated_at, deleted_at FROM kanban_boards WHERE updated_at > @since",
             remote);
         cmd.Parameters.AddWithValue("since", safetyFilterSince.UtcDateTime);
         await using var r = await cmd.ExecuteReaderAsync();
-        var rows = new List<(Guid Id, string Title, Guid OwnerId, DateTime CreatedAt, DateTime UpdatedAt)>();
+        var rows = new List<(Guid Id, string Title, Guid OwnerId, DateTime CreatedAt, DateTime UpdatedAt, DateTime? DeletedAt)>();
         while (await r.ReadAsync())
-            rows.Add((r.GetGuid(0), r.GetString(1), r.GetGuid(2), r.GetDateTime(3), r.GetDateTime(4)));
+            rows.Add((r.GetGuid(0), r.GetString(1), r.GetGuid(2), r.GetDateTime(3), r.GetDateTime(4),
+                      r.IsDBNull(5) ? (DateTime?)null : r.GetDateTime(5)));
         await r.CloseAsync();
 
-        foreach (var (id, title, ownerId, createdAt, updatedAt) in rows)
+        foreach (var (id, title, ownerId, createdAt, updatedAt, deletedAt) in rows)
         {
             await using var upsert = new NpgsqlCommand(
-                @"INSERT INTO kanban_boards (id, title, owner_id, created_at, updated_at)
-                  VALUES (@id, @title, @ownerId, @createdAt, @updatedAt)
+                @"INSERT INTO kanban_boards (id, title, owner_id, created_at, updated_at, deleted_at)
+                  VALUES (@id, @title, @ownerId, @createdAt, @updatedAt, @deletedAt)
                   ON CONFLICT (id) DO UPDATE SET
                     title      = EXCLUDED.title,
-                    updated_at = EXCLUDED.updated_at",
+                    updated_at = EXCLUDED.updated_at,
+                    deleted_at = EXCLUDED.deleted_at",
                 local);
             upsert.Parameters.AddWithValue("id", id);
             upsert.Parameters.AddWithValue("title", title);
             upsert.Parameters.AddWithValue("ownerId", ownerId);
             upsert.Parameters.AddWithValue("createdAt", createdAt);
             upsert.Parameters.AddWithValue("updatedAt", updatedAt);
+            upsert.Parameters.AddWithValue("deletedAt", (object?)deletedAt ?? DBNull.Value);
             await upsert.ExecuteNonQueryAsync();
         }
     }
@@ -933,33 +967,36 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset safetyFilterSince)
     {
         await using var cmd = new NpgsqlCommand(
-            "SELECT id, board_id, title, sort_order, updated_at FROM kanban_columns WHERE updated_at > @since",
+            "SELECT id, board_id, title, sort_order, updated_at, deleted_at FROM kanban_columns WHERE updated_at > @since",
             remote);
         cmd.Parameters.AddWithValue("since", safetyFilterSince.UtcDateTime);
         await using var r = await cmd.ExecuteReaderAsync();
-        var rows = new List<(Guid Id, Guid BoardId, string Title, int SortOrder, DateTime UpdatedAt)>();
+        var rows = new List<(Guid Id, Guid BoardId, string Title, int SortOrder, DateTime UpdatedAt, DateTime? DeletedAt)>();
         while (await r.ReadAsync())
-            rows.Add((r.GetGuid(0), r.GetGuid(1), r.GetString(2), r.GetInt32(3), r.GetDateTime(4)));
+            rows.Add((r.GetGuid(0), r.GetGuid(1), r.GetString(2), r.GetInt32(3), r.GetDateTime(4),
+                      r.IsDBNull(5) ? (DateTime?)null : r.GetDateTime(5)));
         await r.CloseAsync();
 
-        foreach (var (id, boardId, title, sortOrder, updatedAt) in rows)
+        foreach (var (id, boardId, title, sortOrder, updatedAt, deletedAt) in rows)
         {
             try
             {
                 await using var upsert = new NpgsqlCommand(
-                    @"INSERT INTO kanban_columns (id, board_id, title, sort_order, updated_at)
-                      VALUES (@id, @boardId, @title, @sortOrder, @updatedAt)
+                    @"INSERT INTO kanban_columns (id, board_id, title, sort_order, updated_at, deleted_at)
+                      VALUES (@id, @boardId, @title, @sortOrder, @updatedAt, @deletedAt)
                       ON CONFLICT (id) DO UPDATE SET
                         board_id   = EXCLUDED.board_id,
                         title      = EXCLUDED.title,
                         sort_order = EXCLUDED.sort_order,
-                        updated_at = EXCLUDED.updated_at",
+                        updated_at = EXCLUDED.updated_at,
+                        deleted_at = EXCLUDED.deleted_at",
                     local);
                 upsert.Parameters.AddWithValue("id", id);
                 upsert.Parameters.AddWithValue("boardId", boardId);
                 upsert.Parameters.AddWithValue("title", title);
                 upsert.Parameters.AddWithValue("sortOrder", sortOrder);
                 upsert.Parameters.AddWithValue("updatedAt", updatedAt);
+                upsert.Parameters.AddWithValue("deletedAt", (object?)deletedAt ?? DBNull.Value);
                 await upsert.ExecuteNonQueryAsync();
             }
             catch
@@ -974,34 +1011,36 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset safetyFilterSince)
     {
         await using var cmd = new NpgsqlCommand(
-            @"SELECT id, column_id, title, note_id, sort_order, created_at, updated_at
+            @"SELECT id, column_id, title, note_id, sort_order, created_at, updated_at, deleted_at
               FROM kanban_cards WHERE updated_at > @since",
             remote);
         cmd.Parameters.AddWithValue("since", safetyFilterSince.UtcDateTime);
         await using var r = await cmd.ExecuteReaderAsync();
-        var rows = new List<(Guid Id, Guid ColumnId, string Title, Guid? NoteId, int SortOrder, DateTime CreatedAt, DateTime UpdatedAt)>();
+        var rows = new List<(Guid Id, Guid ColumnId, string Title, Guid? NoteId, int SortOrder, DateTime CreatedAt, DateTime UpdatedAt, DateTime? DeletedAt)>();
         while (await r.ReadAsync())
             rows.Add((
                 r.GetGuid(0), r.GetGuid(1), r.GetString(2),
                 r.IsDBNull(3) ? null : r.GetGuid(3),
-                r.GetInt32(4), r.GetDateTime(5), r.GetDateTime(6)));
+                r.GetInt32(4), r.GetDateTime(5), r.GetDateTime(6),
+                r.IsDBNull(7) ? (DateTime?)null : r.GetDateTime(7)));
         await r.CloseAsync();
 
-        foreach (var (id, columnId, title, noteId, sortOrder, createdAt, updatedAt) in rows)
+        foreach (var (id, columnId, title, noteId, sortOrder, createdAt, updatedAt, deletedAt) in rows)
         {
             try
             {
                 await using var upsert = new NpgsqlCommand(
                     @"INSERT INTO kanban_cards
-                        (id, column_id, title, note_id, sort_order, created_at, updated_at)
+                        (id, column_id, title, note_id, sort_order, created_at, updated_at, deleted_at)
                       VALUES
-                        (@id, @columnId, @title, @noteId, @sortOrder, @createdAt, @updatedAt)
+                        (@id, @columnId, @title, @noteId, @sortOrder, @createdAt, @updatedAt, @deletedAt)
                       ON CONFLICT (id) DO UPDATE SET
                         column_id  = EXCLUDED.column_id,
                         title      = EXCLUDED.title,
                         note_id    = EXCLUDED.note_id,
                         sort_order = EXCLUDED.sort_order,
-                        updated_at = EXCLUDED.updated_at",
+                        updated_at = EXCLUDED.updated_at,
+                        deleted_at = EXCLUDED.deleted_at",
                     local);
                 upsert.Parameters.AddWithValue("id", id);
                 upsert.Parameters.AddWithValue("columnId", columnId);
@@ -1010,6 +1049,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                 upsert.Parameters.AddWithValue("sortOrder", sortOrder);
                 upsert.Parameters.AddWithValue("createdAt", createdAt);
                 upsert.Parameters.AddWithValue("updatedAt", updatedAt);
+                upsert.Parameters.AddWithValue("deletedAt", (object?)deletedAt ?? DBNull.Value);
                 await upsert.ExecuteNonQueryAsync();
             }
             catch

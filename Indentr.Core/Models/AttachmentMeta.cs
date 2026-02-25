@@ -8,4 +8,5 @@ public class AttachmentMeta
     public string MimeType { get; set; } = "";
     public long Size { get; set; }
     public DateTime CreatedAt { get; set; }
+    public DateTime? DeletedAt { get; set; }
 }
