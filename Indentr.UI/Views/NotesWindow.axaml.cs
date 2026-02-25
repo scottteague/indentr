@@ -163,6 +163,11 @@ public partial class NotesWindow : Window
             e.Handled = true;
             await SaveAndCloseAsync();
         }
+        else if (e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.Control)
+        {
+            e.Handled = true;
+            await SaveAndCloseAsync();
+        }
     }
 
     // ── Close: cancel → save → re-close (same pattern as MainWindow) ─────────
