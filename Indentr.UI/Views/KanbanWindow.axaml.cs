@@ -418,7 +418,6 @@ public partial class KanbanWindow : Window
 
         card.NoteId = note.Id;
         await App.Kanban.SetCardNoteAsync(card.Id, note.Id);
-        await AttachNoteToSourceAsync(note);
 
         BuildBoardUI();
         if (_cardBorders.TryGetValue(card.Id, out var b))
@@ -443,35 +442,12 @@ public partial class KanbanWindow : Window
 
         card.NoteId = note.Id;
         await App.Kanban.SetCardNoteAsync(card.Id, note.Id);
-        await AttachNoteToSourceAsync(note);
 
         BuildBoardUI();
         if (_cardBorders.TryGetValue(card.Id, out var b))
             SelectCard(card.Id, b);
 
         await NotesWindow.OpenAsync(note.Id);
-    }
-
-    // If this board was opened from a note, appends a link to the new note in that
-    // source note so it becomes a tree child rather than an orphan.
-    private async Task AttachNoteToSourceAsync(Indentr.Core.Models.Note note)
-    {
-        if (_sourceNoteId is null) return;
-
-        // Flush any open window first so the DB has the latest content and hash.
-        await MainWindow.SaveIfRootAsync(_sourceNoteId.Value);
-        await NotesWindow.SaveIfOpenAsync(_sourceNoteId.Value);
-
-        var source = await App.Notes.GetByIdAsync(_sourceNoteId.Value);
-        if (source is null) return;
-
-        source.Content += $"\n[{note.Title}](note:{note.Id})";
-        source.OwnerId  = App.CurrentUser.Id;
-        await App.Notes.SaveAsync(source, source.ContentHash);
-
-        // Reload open windows so the new link is immediately visible.
-        await MainWindow.ReloadIfRootAsync(_sourceNoteId.Value);
-        await NotesWindow.ReloadIfOpenAsync(_sourceNoteId.Value);
     }
 
     private async Task DeleteCardAsync(KanbanCard card)
