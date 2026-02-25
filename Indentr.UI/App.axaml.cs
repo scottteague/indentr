@@ -116,12 +116,18 @@ public partial class App : Application
         CurrentUser = remoteUserId.HasValue
             ? await Users.GetOrCreateWithIdAsync(remoteUserId.Value, profile.Username)
             : await Users.GetOrCreateAsync(profile.Username);
+
+        // SyncService is created here so that when we've just adopted a remote identity
+        // (new machine joining an existing account) we can run an initial pull before
+        // EnsureRootExistsAsync. Without this, EnsureRootExistsAsync creates a fresh local
+        // root note that conflicts with the remote's existing root on the first push.
+        Sync = new SyncService(cs, remoteCs, CurrentUser.Id);
+
+        if (remoteUserId.HasValue)
+            await Sync.SyncOnceAsync(); // pull existing root/scratchpad; ignore failures
+
         await Notes.EnsureRootExistsAsync(CurrentUser.Id);
         await Scratchpads.GetOrCreateForUserAsync(CurrentUser.Id);
-
-        // SyncService needs the user ID so the pull phase can apply the privacy filter
-        // (only pull private notes that belong to the current user).
-        Sync = new SyncService(cs, remoteCs, CurrentUser.Id);
 
         // Open main window.
         var loadingWindow = desktop.MainWindow;
