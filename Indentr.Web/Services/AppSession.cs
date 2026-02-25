@@ -19,11 +19,8 @@ public sealed class AppSession : IAsyncDisposable
     public IUserRepository?       Users          { get; private set; }
     public IScratchpadRepository? Scratchpads    { get; private set; }
     public IAttachmentStore?      Attachments    { get; private set; }
-    public ISyncService?          Sync           { get; private set; }
     public User?                  CurrentUser    { get; private set; }
     public DatabaseProfile?       CurrentProfile { get; private set; }
-
-    private CancellationTokenSource? _timerCts;
 
     public async Task InitializeAsync(DatabaseProfile profile)
     {
@@ -48,22 +45,10 @@ public sealed class AppSession : IAsyncDisposable
             Scratchpads = new ScratchpadRepository(cs);
             Attachments = new PostgresAttachmentStore(cs);
 
-            var remoteCs = profile.RemoteDatabase is { } rdb
-                ? ConnectionStringBuilder.Build(rdb.Host, rdb.Port, rdb.Name, rdb.Username, rdb.Password)
-                : null;
-
-            Sync = new SyncService(cs, remoteCs, CurrentUser?.Id ?? Guid.Empty);
-
             CurrentUser = await Users.GetOrCreateAsync(profile.Username);
-
-            // Re-create SyncService now that we have the real user ID.
-            Sync = new SyncService(cs, remoteCs, CurrentUser.Id);
 
             await Notes.EnsureRootExistsAsync(CurrentUser.Id);
             await Scratchpads.GetOrCreateForUserAsync(CurrentUser.Id);
-
-            if (remoteCs is not null)
-                StartSyncTimer();
 
             State = SessionState.Ready;
         }
@@ -74,28 +59,5 @@ public sealed class AppSession : IAsyncDisposable
         }
     }
 
-    private void StartSyncTimer()
-    {
-        _timerCts = new CancellationTokenSource();
-        var token = _timerCts.Token;
-        _ = Task.Run(async () =>
-        {
-            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(10));
-            try
-            {
-                while (await timer.WaitForNextTickAsync(token))
-                    await Sync!.SyncOnceAsync();
-            }
-            catch (OperationCanceledException) { }
-        }, token);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_timerCts is not null)
-        {
-            await _timerCts.CancelAsync();
-            _timerCts.Dispose();
-        }
-    }
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

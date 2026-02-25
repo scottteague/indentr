@@ -20,14 +20,8 @@
 
         <ListBox x:Name="ProfileList" SelectionChanged="OnSelectionChanged">
             <ListBox.ItemTemplate>
-                <DataTemplate x:CompileBindings="False">
-                    <StackPanel Margin="0,2">
-                        <TextBlock Text="{Binding DisplayName}" />
-                        <TextBlock Text="{Binding SyncLine}"
-                                   IsVisible="{Binding HasSyncLine}"
-                                   FontSize="11"
-                                   Opacity="0.55" />
-                    </StackPanel>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" Margin="0,2" />
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>

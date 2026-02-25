@@ -6,7 +6,6 @@ public class DatabaseProfile
     public string Username       { get; set; } = "";
     public string LocalSchemaId  { get; set; } = "";
     public DatabaseConfig  Database       { get; set; } = new();
-    public DatabaseConfig? RemoteDatabase { get; set; }
 }
 
 public class AppConfig

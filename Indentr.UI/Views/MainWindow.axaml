@@ -23,27 +23,6 @@
             </MenuItem>
         </Menu>
 
-        <!-- Sync status bar — hidden when no remote is configured -->
-        <Border DockPanel.Dock="Bottom"
-                x:Name="SyncBar"
-                IsVisible="False"
-                BorderThickness="0,1,0,0"
-                Padding="8,3">
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0"
-                           x:Name="SyncStatusText"
-                           VerticalAlignment="Center"
-                           FontSize="12"
-                           Opacity="0.75" />
-                <Button Grid.Column="1"
-                        x:Name="SyncNowButton"
-                        Content="Sync now"
-                        FontSize="12"
-                        Padding="8,2"
-                        Click="OnSyncNowClicked" />
-            </Grid>
-        </Border>
-
         <controls:NoteEditorControl x:Name="RootEditor" />
     </DockPanel>
 </Window>

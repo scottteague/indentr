@@ -45,17 +45,6 @@ public partial class FirstRunWindow : Window
         DbNameBox.Text      = profile.Database.Name;
         DbUserBox.Text      = profile.Database.Username;
         DbPasswordBox.Text  = profile.Database.Password;
-
-        if (profile.RemoteDatabase is not null)
-        {
-            EnableRemoteBox.IsChecked   = true;
-            RemotePanel.IsVisible       = true;
-            RemoteHostBox.Text          = profile.RemoteDatabase.Host;
-            RemotePortBox.Text          = profile.RemoteDatabase.Port.ToString();
-            RemoteDbNameBox.Text        = profile.RemoteDatabase.Name;
-            RemoteDbUserBox.Text        = profile.RemoteDatabase.Username;
-            RemoteDbPasswordBox.Text    = profile.RemoteDatabase.Password;
-        }
     }
 
     /// <summary>Shows the window. Pass an owner to make it modal; omit for standalone use.</summary>
@@ -71,12 +60,6 @@ public partial class FirstRunWindow : Window
         Closed += (_, _) => tcs.TrySetResult(_ok);
         Show();
         return await tcs.Task;
-    }
-
-    private void OnEnableRemoteChanged(object? sender, RoutedEventArgs e)
-    {
-        RemotePanel.IsVisible = EnableRemoteBox.IsChecked == true;
-        TestResultText.IsVisible = false;
     }
 
     private void OnOkClicked(object? sender, RoutedEventArgs e)
@@ -101,13 +84,6 @@ public partial class FirstRunWindow : Window
             return;
         }
 
-        if (EnableRemoteBox.IsChecked == true &&
-            (!int.TryParse(RemotePortBox.Text, out var remotePort) || remotePort < 1 || remotePort > 65535))
-        {
-            ShowError("Remote port must be a number between 1 and 65535.");
-            return;
-        }
-
         _profile.Name              = name;
         _profile.Username          = username;
         _profile.Database.Host     = DbHostBox.Text?.Trim() ?? "localhost";
@@ -115,23 +91,6 @@ public partial class FirstRunWindow : Window
         _profile.Database.Name     = DbNameBox.Text?.Trim() ?? "indentr";
         _profile.Database.Username = DbUserBox.Text?.Trim() ?? "postgres";
         _profile.Database.Password = DbPasswordBox.Text ?? "";
-
-        if (EnableRemoteBox.IsChecked == true)
-        {
-            int.TryParse(RemotePortBox.Text, out var rPort);
-            _profile.RemoteDatabase = new DatabaseConfig
-            {
-                Host     = RemoteHostBox.Text?.Trim() ?? "localhost",
-                Port     = rPort,
-                Name     = RemoteDbNameBox.Text?.Trim() ?? "indentr",
-                Username = RemoteDbUserBox.Text?.Trim() ?? "postgres",
-                Password = RemoteDbPasswordBox.Text ?? ""
-            };
-        }
-        else
-        {
-            _profile.RemoteDatabase = null;
-        }
 
         _ok = true;
         Close();
@@ -161,42 +120,11 @@ public partial class FirstRunWindow : Window
         TestLocalConnectionButton.IsEnabled = true;
     }
 
-    private async void OnTestConnectionClicked(object? sender, RoutedEventArgs e)
-    {
-        TestConnectionButton.IsEnabled = false;
-        TestResultText.IsVisible = false;
-
-        if (!int.TryParse(RemotePortBox.Text, out var port) || port < 1 || port > 65535)
-        {
-            SetTestResult(success: false, "Invalid port.");
-            TestConnectionButton.IsEnabled = true;
-            return;
-        }
-
-        var cs = ConnectionStringBuilder.Build(
-            RemoteHostBox.Text?.Trim() ?? "",
-            port,
-            RemoteDbNameBox.Text?.Trim() ?? "",
-            RemoteDbUserBox.Text?.Trim() ?? "",
-            RemoteDbPasswordBox.Text ?? "");
-
-        var error = await ConnectionStringBuilder.TryConnectAsync(cs);
-        SetTestResult(success: error is null, error ?? "Connected successfully.");
-        TestConnectionButton.IsEnabled = true;
-    }
-
     private void SetLocalTestResult(bool success, string message)
     {
         LocalTestResultText.Text       = message;
         LocalTestResultText.Foreground = success ? Brushes.Green : Brushes.Red;
         LocalTestResultText.IsVisible  = true;
-    }
-
-    private void SetTestResult(bool success, string message)
-    {
-        TestResultText.Text       = message;
-        TestResultText.Foreground = success ? Brushes.Green : Brushes.Red;
-        TestResultText.IsVisible  = true;
     }
 
     private void ShowError(string message)
