@@ -16,6 +16,9 @@
             <Separator Width="1" />
             <Button x:Name="SaveButton"         Content="Save"         Width="50"          ToolTip.Tip="Save (Ctrl+S)"                       Click="OnSaveClick" />
             <Button x:Name="ExportButton"       Content="Export…"      Width="70"          ToolTip.Tip="Export to Markdown"                  Click="OnExportClick" />
+            <Button x:Name="ExportSubtreeButton" Content="Export Subtree…" Width="120"
+                    ToolTip.Tip="Export this note and all children to a folder"
+                    Click="OnExportSubtreeClick" IsEnabled="False" />
         </StackPanel>
 
         <!-- Save error banner (hidden by default) -->

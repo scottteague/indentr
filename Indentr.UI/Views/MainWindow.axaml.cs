@@ -2,8 +2,10 @@ using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Indentr.Core.Interfaces;
 using Indentr.Core.Models;
+using Indentr.Data;
 using Indentr.UI.Config;
 
 namespace Indentr.UI.Views;
@@ -123,6 +125,29 @@ public partial class MainWindow : Window
 
     private void OnTrashClicked(object? sender, RoutedEventArgs e) =>
         new TrashWindow().Show();
+
+    private async void OnImportClicked(object? sender, RoutedEventArgs e)
+    {
+        var folders = await StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
+        {
+            Title = "Select export folder to import"
+        });
+        if (folders.Count == 0) return;
+
+        var path = folders[0].TryGetLocalPath();
+        if (path is null) return;
+
+        try
+        {
+            var r = await SubtreeImporter.ImportAsync(App.Notes, App.Kanban, App.Attachments, path, App.CurrentUser.Id);
+            await MessageBox.ShowInfo(this, "Import Complete",
+                $"Imported {r.NotesImported} notes, {r.BoardsImported} boards, {r.AttachmentsImported} attachments.");
+        }
+        catch (Exception ex)
+        {
+            await MessageBox.ShowError(this, "Import Failed", ex.Message);
+        }
+    }
 
     private async void OnManageProfilesClicked(object? sender, RoutedEventArgs e)
     {

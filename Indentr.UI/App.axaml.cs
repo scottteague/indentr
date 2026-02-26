@@ -50,12 +50,14 @@ public partial class App : Application
         else
         {
             // 0 profiles (first run) or 2+ profiles — show the picker.
+            desktop.MainWindow!.Hide();
             profile = await ProfilePickerWindow.ShowForStartupAsync(config);
             if (profile is null)
             {
                 desktop.Shutdown();
                 return;
             }
+            desktop.MainWindow.Show();
         }
 
         CurrentProfile = profile;

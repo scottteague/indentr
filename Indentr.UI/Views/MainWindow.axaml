@@ -16,6 +16,7 @@
                 <MenuItem Header="S_cratchpad"       Click="OnScratchpadClicked" />
                 <MenuItem Header="_Manage Notes…"    Click="OnManageClicked" />
                 <MenuItem Header="_Trash…"           Click="OnTrashClicked" />
+                <MenuItem Header="_Import…"           Click="OnImportClicked" />
                 <Separator />
                 <MenuItem Header="Switch _Profile…"  Click="OnManageProfilesClicked" />
                 <Separator />

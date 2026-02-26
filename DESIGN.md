@@ -138,15 +138,17 @@ The editor **renders** the Markdown with live visual styling so the user sees fo
 
 ### Toolbar Buttons
 
-| Button             | Markdown Applied          | Visual Rendering |
-|--------------------|---------------------------|------------------|
-| **Bold**           | `**selected text**`       | Bold text |
-| **Red**            | `__selected text__`       | Red-colored text |
-| **Italic**         | `*selected text*`         | Italic text |
-| **Underline**      | `_selected text_`         | Underlined text |
-| **Link**           | `[selected text](target)` | Clickable link (prompts for target) |
-| **New Child Note** | Creates a new note and inserts an in-app link | See below |
-| **📋 Board**       | Creates a kanban board and inserts a kanban link | See [Kanban Boards](#kanban-boards) |
+| Button               | Markdown Applied          | Visual Rendering |
+|----------------------|---------------------------|------------------|
+| **Bold**             | `**selected text**`       | Bold text |
+| **Red**              | `__selected text__`       | Red-colored text |
+| **Italic**           | `*selected text*`         | Italic text |
+| **Underline**        | `_selected text_`         | Underlined text |
+| **Link**             | `[selected text](target)` | Clickable link (prompts for target) |
+| **New Child Note**   | Creates a new note and inserts an in-app link | See below |
+| **📋 Board**         | Creates a kanban board and inserts a kanban link | See [Kanban Boards](#kanban-boards) |
+| **Export…**          | Exports current note as `.md` | — |
+| **Export Subtree…**  | Exports note + all descendants to a folder | See [Export / Import](#export--import) |
 
 ### Attachment Bar
 
@@ -337,16 +339,22 @@ This is a note with **bold text** and __red text__ and _underlined text_.
 ## Application Flow
 
 ```
-App Start
+App Start → Loading screen shown
     │
     ▼
-Profile selection (picker if 0 or 2+ profiles, automatic if exactly 1)
+Profile selection:
+  - Exactly 1 profile → used automatically (loading screen stays visible)
+  - 0 or 2+ profiles  → loading screen hides, Profile Picker shown,
+                         loading screen reappears after selection
     │
     ▼
 DB schema migration (automatic)
     │
     ▼
-Main Form loads root note and scratchpad
+Crash recovery scan (RecoveryWindow if unsaved files found)
+    │
+    ▼
+Main Form loads root note and scratchpad; loading screen closes
     │
 User clicks in-app link → New Notes Form opens (lazy fetch)
     │
@@ -399,15 +407,39 @@ The **NoteEditorControl** supports **infinite undo/redo** per editing session.
 
 ---
 
-## Export
+## Export / Import
 
-Notes can be **exported to Markdown** (`.md` files).
+### Single-note export
 
-- Content is already stored as raw Markdown, so export is near-zero transformation.
-- Export a single note, or a subtree (note + all descendants).
-- **In-app links** (`[text](note:UUID)`) are converted to plain text on export.
-- External links, bold, red, underline, and bullets are already valid Markdown and exported as-is.
-- Subtree export concatenates notes with their titles as headings, maintaining hierarchy via heading levels.
+The **Export…** button exports the current note as a `.md` file. In-app links (`[text](note:UUID)`) are stripped to plain text; external links and Markdown formatting are preserved as-is.
+
+### Subtree export
+
+The **Export Subtree…** button (`SubtreeExporter` in `Indentr.Data`) exports the current note and all of its descendants into a self-contained folder:
+
+```
+{NoteTitle}-export/
+  manifest.json          — version, counts, root note ID
+  notes/
+    {title}-{id}.md      — YAML frontmatter + raw note content
+  boards/
+    {title}-{id}.json    — full board: columns → cards
+  attachments/
+    {id}.json            — sidecar: noteId, filename, mimeType
+    {id}.bin             — raw attachment bytes
+```
+
+Note frontmatter is hand-parseable `key: value` pairs delimited by `---`. Kanban boards are collected by scanning all exported note content for `kanban:UUID` links.
+
+### Subtree import
+
+**File → Import…** (`SubtreeImporter` in `Indentr.Data`) reads an export folder and recreates everything under the current user with fresh IDs:
+
+1. Validates `manifest.json` (version must be 1).
+2. Topologically sorts notes (parents before children).
+3. Mints new GUIDs for every note and board.
+4. Creates notes, then boards (with columns and cards), then attachments.
+5. Rewrites all `note:` and `kanban:` links in note content to point at the new IDs.
 
 ---
 
@@ -554,8 +586,9 @@ On startup, in order:
    - **Exactly one profile**: used automatically.
    - **Two or more profiles**: Profile Picker shown; last-used profile is pre-selected.
 2. **Database schema** — Pending migrations run automatically. If the database is unreachable, the user is shown an error and startup aborts.
-3. **Root note** — If none exists for the current user (`is_root = TRUE AND created_by = userId`), one is created with the title "Root".
-4. **Scratchpad** — If none exists for the current user, one is created (empty content).
+3. **Crash recovery** — `RecoveryManager` scans `~/.config/indentr/recovery/` for unsaved note files left by a previous crash. If any are found, `RecoveryWindow` is shown so the user can restore or discard each one.
+4. **Root note** — If none exists for the current user (`is_root = TRUE AND created_by = userId`), one is created with the title "Root".
+5. **Scratchpad** — If none exists for the current user, one is created (empty content).
 
 ---
 
@@ -637,10 +670,10 @@ Indentr.sln
 
 | Project         | Responsibilities |
 |-----------------|------------------|
-| `Indentr.Core`  | Note, User, Scratchpad, AttachmentMeta, Kanban models; repository interfaces; conflict resolution; export logic |
-| `Indentr.Data`  | Npgsql-based repository implementations; schema migrations (run on startup via `DatabaseMigrator`) |
-| `Indentr.UI`    | Avalonia App, all windows and controls, config management |
-| `Indentr.Tests` | Tests for Core and Data layers |
+| `Indentr.Core`  | Note, User, Scratchpad, AttachmentMeta, Kanban models; repository interfaces; conflict resolution |
+| `Indentr.Data`  | Npgsql-based repository implementations; schema migrations (`DatabaseMigrator`); `SubtreeExporter`; `SubtreeImporter` |
+| `Indentr.UI`    | Avalonia App, all windows and controls, config management, recovery manager |
+| `Indentr.Tests` | Unit tests (mocked); integration tests via Testcontainers (real Postgres, covers full export/import round-trip) |
 
 Dependency direction: `UI → Data → Core`. Core has zero external dependencies.
 

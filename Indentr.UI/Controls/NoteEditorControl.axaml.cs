@@ -7,6 +7,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Indentr.Core.Interfaces;
 using Indentr.Core.Models;
+using Indentr.Data;
 using Indentr.UI.Controls.Markdown;
 using Indentr.UI.Views;
 
@@ -66,6 +67,7 @@ public partial class NoteEditorControl : UserControl
         Editor.IsReadOnly       = false;
         AttachmentBar.IsVisible = true;
         NewBoardButton.IsEnabled = true;
+        ExportSubtreeButton.IsEnabled = true;
         _ = LoadAttachmentsAsync(note.Id);
 
         // Privacy checkbox: visible for regular notes editable by their creator; hidden for root.
@@ -86,6 +88,7 @@ public partial class NoteEditorControl : UserControl
         PrivacyRow.IsVisible    = false;
         AttachmentBar.IsVisible  = false;
         NewBoardButton.IsEnabled = false;
+        ExportSubtreeButton.IsEnabled = false;
         Editor.Text              = scratchpad.Content;
         Editor.IsReadOnly       = false;
         UpdateNewChildNoteButton();
@@ -327,6 +330,32 @@ public partial class NoteEditorControl : UserControl
         if (TitleRow.IsVisible && !string.IsNullOrWhiteSpace(TitleBox.Text))
             await writer.WriteLineAsync($"# {TitleBox.Text}\n");
         await writer.WriteAsync(content);
+    }
+
+    private async void OnExportSubtreeClick(object? sender, RoutedEventArgs e)
+    {
+        if (_noteId is null) return;
+        var window = TopLevel.GetTopLevel(this) as Window;
+        if (window is null) return;
+
+        var folders = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose destination folder for subtree export"
+        });
+        if (folders.Count == 0) return;
+
+        var destFolder = folders[0].TryGetLocalPath();
+        if (destFolder is null) return;
+
+        try
+        {
+            var outPath = await SubtreeExporter.ExportAsync(App.Notes, App.Kanban, App.Attachments, _noteId.Value, _userId, destFolder);
+            await MessageBox.ShowInfo(window, "Export Complete", $"Exported to:\n{outPath}");
+        }
+        catch (Exception ex)
+        {
+            await MessageBox.ShowError(window, "Export Failed", ex.Message);
+        }
     }
 
     // ── Save logic ───────────────────────────────────────────────────────────

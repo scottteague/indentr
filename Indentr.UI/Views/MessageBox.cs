@@ -35,6 +35,36 @@ public static class MessageBox
             dlg.Show();
     }
 
+    public static async Task ShowInfo(Window? owner, string title, string message)
+    {
+        var dlg = new Window
+        {
+            Title = title,
+            Width = 480,
+            Height = 220,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false,
+            Content = new Avalonia.Controls.StackPanel
+            {
+                Margin = new Avalonia.Thickness(20),
+                Spacing = 16,
+                Children =
+                {
+                    new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                    new Button { Content = "OK", HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right }
+                }
+            }
+        };
+
+        var button = ((Avalonia.Controls.StackPanel)dlg.Content!).Children.OfType<Button>().First();
+        button.Click += (_, _) => dlg.Close();
+
+        if (owner is not null)
+            await dlg.ShowDialog(owner);
+        else
+            dlg.Show();
+    }
+
     public static async Task<bool> ShowConfirm(Window owner, string title, string message)
     {
         bool result = false;

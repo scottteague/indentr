@@ -239,6 +239,30 @@ public class NoteRepository(string connectionString) : INoteRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    // SelectColumns with every column prefixed by "n." for use inside a JOIN.
+    private static readonly string SelectColumnsN =
+        string.Join(", ", SelectColumns.Split(", ").Select(c => "n." + c));
+
+    public async Task<IReadOnlyList<Note>> GetSubtreeAsync(Guid rootId, Guid userId)
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            $@"WITH RECURSIVE subtree AS (
+                   SELECT {SelectColumns} FROM notes
+                   WHERE id = @rootId AND deleted_at IS NULL
+                   UNION ALL
+                   SELECT {SelectColumnsN} FROM notes n
+                   INNER JOIN subtree s ON n.parent_id = s.id
+                   WHERE n.deleted_at IS NULL
+                     AND (n.created_by = @userId OR n.is_private = FALSE)
+               )
+               SELECT {SelectColumns} FROM subtree", conn);
+        cmd.Parameters.AddWithValue("rootId", rootId);
+        cmd.Parameters.AddWithValue("userId", userId);
+        return await ReadNotes(cmd);
+    }
+
     public async Task<IReadOnlyList<Guid>> UpdateLinkTitlesAsync(Guid noteId, string newTitle)
     {
         await using var conn = new NpgsqlConnection(connectionString);
