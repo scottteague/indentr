@@ -94,13 +94,22 @@ public partial class NotesWindow : Window
             _note.Content   = content;
             _note.OwnerId   = App.CurrentUser.Id;
             _note.IsPrivate = !isPublic;
-            var result = await App.Notes.SaveAsync(_note, originalHash);
-            if (result == SaveResult.Success || result == SaveResult.Conflict)
+            RecoveryManager.WriteNote(_note.Id, title, content);
+            try
             {
-                Editor.UpdateOriginalHash(_note.ContentHash);
-                Title = _note.Title.Length > 0 ? _note.Title : "Untitled Note";
+                var result = await App.Notes.SaveAsync(_note, originalHash);
+                if (result == SaveResult.Success || result == SaveResult.Conflict)
+                {
+                    RecoveryManager.Delete($"note-{_note.Id}.json");
+                    Editor.UpdateOriginalHash(_note.ContentHash);
+                    Title = _note.Title.Length > 0 ? _note.Title : "Untitled Note";
+                }
+                return result;
             }
-            return result;
+            catch
+            {
+                return SaveResult.Error;
+            }
         };
 
         Editor.InAppLinkClicked += async id =>

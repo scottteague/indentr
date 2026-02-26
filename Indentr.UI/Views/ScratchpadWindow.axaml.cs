@@ -38,10 +38,21 @@ public partial class ScratchpadWindow : Window
         Editor.SaveRequested += async (_, content, originalHash, _) =>
         {
             _scratchpad.Content = content;
-            var result = await App.Scratchpads.SaveAsync(_scratchpad, originalHash);
-            if (result == SaveResult.Success)
-                Editor.UpdateOriginalHash(_scratchpad.ContentHash);
-            return result;
+            RecoveryManager.WriteScratchpad(App.CurrentUser.Id, content);
+            try
+            {
+                var result = await App.Scratchpads.SaveAsync(_scratchpad, originalHash);
+                if (result == SaveResult.Success)
+                {
+                    RecoveryManager.Delete($"scratchpad-{App.CurrentUser.Id}.json");
+                    Editor.UpdateOriginalHash(_scratchpad.ContentHash);
+                }
+                return result;
+            }
+            catch
+            {
+                return SaveResult.Error;
+            }
         };
     }
 

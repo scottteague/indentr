@@ -339,6 +339,11 @@ public partial class NoteEditorControl : UserControl
         var isPublic = PublicCheckBox.IsChecked == true;
         var result   = await SaveRequested.Invoke(title, Editor.Text, _originalHash, isPublic);
 
+        SaveErrorBanner.IsVisible = result == SaveResult.Error;
+
+        if (result == SaveResult.Error)
+            return false;
+
         if (result == SaveResult.Conflict)
         {
             var window = TopLevel.GetTopLevel(this) as Window;

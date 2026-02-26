@@ -2,7 +2,7 @@ using Indentr.Core.Models;
 
 namespace Indentr.Core.Interfaces;
 
-public enum SaveResult { Success, Conflict }
+public enum SaveResult { Success, Conflict, Error }
 
 public interface INoteRepository
 {

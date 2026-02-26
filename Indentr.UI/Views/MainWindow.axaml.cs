@@ -58,11 +58,22 @@ public partial class MainWindow : Window
                 _rootNote.Title   = title;
                 _rootNote.Content = content;
                 _rootNote.OwnerId = App.CurrentUser.Id;
-                // Root note privacy is not user-configurable; always public.
-                var result = await App.Notes.SaveAsync(_rootNote, hash);
-                if (result == SaveResult.Success)
-                    RootEditor.UpdateOriginalHash(_rootNote.ContentHash);
-                return result;
+                RecoveryManager.WriteNote(_rootNote.Id, title, content);
+                try
+                {
+                    // Root note privacy is not user-configurable; always public.
+                    var result = await App.Notes.SaveAsync(_rootNote, hash);
+                    if (result == SaveResult.Success)
+                    {
+                        RecoveryManager.Delete($"note-{_rootNote.Id}.json");
+                        RootEditor.UpdateOriginalHash(_rootNote.ContentHash);
+                    }
+                    return result;
+                }
+                catch
+                {
+                    return SaveResult.Error;
+                }
             };
 
             RootEditor.InAppLinkClicked += async id =>

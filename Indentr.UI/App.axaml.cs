@@ -92,6 +92,10 @@ public partial class App : Application
 
         CurrentUser = await Users.GetOrCreateAsync(profile.Username);
 
+        var recoveries = RecoveryManager.Scan();
+        if (recoveries.Count > 0)
+            await RecoveryWindow.ShowAsync(desktop.MainWindow!, recoveries);
+
         await Notes.EnsureRootExistsAsync(CurrentUser.Id);
         await Scratchpads.GetOrCreateForUserAsync(CurrentUser.Id);
 

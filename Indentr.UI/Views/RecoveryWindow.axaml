@@ -1,0 +1,26 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Indentr.UI.Views.RecoveryWindow"
+        Icon="avares://Indentr.UI/Assets/icon.png"
+        Title="Unsaved Changes Found"
+        Width="560" Height="420"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False">
+
+    <DockPanel Margin="12">
+
+        <TextBlock DockPanel.Dock="Top" FontSize="14" FontWeight="SemiBold"
+                   TextWrapping="Wrap" Margin="0,0,0,10"
+                   Text="Unsaved changes were found from a previous session. Restore or discard each entry below." />
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button x:Name="CloseButton" Content="Close" IsEnabled="False" Click="OnCloseClicked" />
+        </StackPanel>
+
+        <ScrollViewer>
+            <StackPanel x:Name="RecoveryPanel" Spacing="4" />
+        </ScrollViewer>
+
+    </DockPanel>
+</Window>
