@@ -14,6 +14,14 @@ set ROOT=%~dp0..
 set PROJECT=%ROOT%\Indentr.UI\Indentr.UI.csproj
 set PUBLISH_OUT=%ROOT%\Indentr.UI\bin\Release\net10.0\win-x64\publish
 
+:: Optional version override: build.bat 1.0
+:: If omitted, the version defined in indentr.iss is used.
+if "%~1"=="" (
+  set VERSION_ARG=
+) else (
+  set VERSION_ARG=/DMyAppVersion="%~1"
+)
+
 :: ── Step 1: dotnet publish ────────────────────────────────────────────────────
 
 echo.
@@ -59,7 +67,7 @@ if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" (
   )
 )
 
-"%ISCC%" "%~dp0indentr.iss"
+"%ISCC%" %VERSION_ARG% "%~dp0indentr.iss"
 
 if errorlevel 1 (
   echo.
@@ -70,6 +78,7 @@ if errorlevel 1 (
 echo.
 echo ─────────────────────────────────────────────────────
 echo  Installer built successfully:
-echo  %~dp0output\IndentrSetup-1.0.exe
+echo  %~dp0output\
+echo  (see installer\output\ for the .exe)
 echo ─────────────────────────────────────────────────────
 echo.

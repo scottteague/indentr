@@ -1,0 +1,99 @@
+@page "/trash"
+@inject AppSession Session
+@inject IJSRuntime JS
+
+<PageTitle>Trash — Indentr</PageTitle>
+
+<div class="trash-page">
+    <div class="trash-header">
+        <h1 class="trash-heading">Trash</h1>
+        @if (_notes.Count > 0)
+        {
+            <button class="btn-danger" @onclick="EmptyTrashAsync" disabled="@_busy">Empty Trash</button>
+        }
+    </div>
+
+    @if (_notes.Count == 0)
+    {
+        <p class="trash-empty">Trash is empty.</p>
+    }
+    else
+    {
+        <ul class="trash-list">
+            @foreach (var note in _notes)
+            {
+                <li class="trash-item">
+                    <div class="trash-item-info">
+                        <span class="trash-item-title">@note.Title</span>
+                        <span class="trash-item-date">Deleted @note.DeletedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                    </div>
+                    <div class="trash-item-actions">
+                        <button class="btn-restore" @onclick="() => RestoreAsync(note.Id)" disabled="@_busy">Restore</button>
+                        <button class="btn-danger-sm" @onclick="() => PermanentDeleteAsync(note.Id)" disabled="@_busy">Delete Forever</button>
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    private List<Note> _notes = [];
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (Session.Notes is null || Session.CurrentUser is null) return;
+        var result = await Session.Notes.GetTrashedAsync(Session.CurrentUser.Id);
+        _notes = result.ToList();
+    }
+
+    private async Task RestoreAsync(Guid id)
+    {
+        if (Session.Notes is null) return;
+        _busy = true;
+        try
+        {
+            await Session.Notes.RestoreAsync(id);
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task PermanentDeleteAsync(Guid id)
+    {
+        var note = _notes.Find(n => n.Id == id);
+        var ok = await JS.InvokeAsync<bool>("confirm",
+            $"Permanently delete \"{note?.Title ?? "this note"}\"? This cannot be undone.");
+        if (!ok) return;
+
+        if (Session.Notes is null) return;
+        _busy = true;
+        try
+        {
+            await Session.Notes.PermanentlyDeleteAsync(id);
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task EmptyTrashAsync()
+    {
+        if (_notes.Count == 0) return;
+        var ok = await JS.InvokeAsync<bool>("confirm",
+            $"Permanently delete all {_notes.Count} trashed note(s)? This cannot be undone.");
+        if (!ok) return;
+
+        if (Session.Notes is null) return;
+        _busy = true;
+        try
+        {
+            foreach (var note in _notes.ToList())
+                await Session.Notes.PermanentlyDeleteAsync(note.Id);
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+}

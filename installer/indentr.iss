@@ -5,7 +5,12 @@
 ; so that the publish output folder exists.
 
 #define MyAppName      "Indentr"
-#define MyAppVersion   "0.001"
+; MyAppVersion can be overridden at compile time:
+;   ISCC.exe /DMyAppVersion=1.0 indentr.iss
+; If not provided (e.g. local build), the default below is used.
+#ifndef MyAppVersion
+  #define MyAppVersion "0.001"
+#endif
 #define MyAppPublisher "Indentr Contributors"
 #define MyAppURL       "https://github.com/scottteague/indentr"
 #define MyAppExeName   "Indentr.UI.exe"
@@ -175,6 +180,64 @@ begin
 end;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Escapes a string for safe embedding inside a JSON double-quoted value.
+function JsonEscape(S: String): String;
+var
+  I: Integer;
+  C: Char;
+begin
+  Result := '';
+  for I := 1 to Length(S) do
+  begin
+    C := S[I];
+    if      C = '"'  then Result := Result + '\"'
+    else if C = '\'  then Result := Result + '\\'
+    else if C = #8   then Result := Result + '\b'
+    else if C = #9   then Result := Result + '\t'
+    else if C = #10  then Result := Result + '\n'
+    else if C = #12  then Result := Result + '\f'
+    else if C = #13  then Result := Result + '\r'
+    else Result := Result + C;
+  end;
+end;
+
+// Writes a ready-to-use config.json for the installing user so the app opens
+// directly without showing the profile picker on first launch.
+// Skipped if a config already exists (e.g. reinstall or upgrade).
+procedure WriteDefaultConfig(Password: String);
+var
+  ConfigDir:  String;
+  ConfigFile: String;
+  Json:       String;
+begin
+  ConfigDir  := ExpandConstant('{%USERPROFILE}') + '\.config\indentr';
+  ConfigFile := ConfigDir + '\config.json';
+
+  if FileExists(ConfigFile) then Exit;
+
+  Json :=
+    '{' + #13#10 +
+    '  "LastProfile": "Local",' + #13#10 +
+    '  "Profiles": [' + #13#10 +
+    '    {' + #13#10 +
+    '      "Name": "Local",' + #13#10 +
+    '      "Username": "' + JsonEscape(ExpandConstant('{username}')) + '",' + #13#10 +
+    '      "LocalSchemaId": "",' + #13#10 +
+    '      "Database": {' + #13#10 +
+    '        "Host": "localhost",' + #13#10 +
+    '        "Port": 5432,' + #13#10 +
+    '        "Name": "indentr",' + #13#10 +
+    '        "Username": "postgres",' + #13#10 +
+    '        "Password": "' + JsonEscape(Password) + '"' + #13#10 +
+    '      }' + #13#10 +
+    '    }' + #13#10 +
+    '  ]' + #13#10 +
+    '}';
+
+  ForceDirectories(ConfigDir);
+  SaveStringToFile(ConfigFile, Json, False);
+end;
 
 // Returns the postgres superuser password the user entered (may be empty).
 function GetPgPassword: String;
@@ -357,4 +420,10 @@ begin
       '  psql -U postgres -c "CREATE DATABASE {#PgDbName};"' + #13#10#13#10 +
       'Indentr will prompt you for connection details on first launch.',
       mbInformation, MB_OK);
+
+  // ── Step 3: Write config.json so the app opens without a profile picker ───
+
+  WizardForm.StatusLabel.Caption  := 'Writing configuration...';
+  WizardForm.FilenameLabel.Caption := '';
+  WriteDefaultConfig(Password);
 end;

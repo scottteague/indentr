@@ -68,6 +68,25 @@ a:hover { text-decoration: underline; }
 .tree-label:hover { background: var(--bg-hover); text-decoration: none; }
 .tree-label.private { color: var(--fg-muted); font-style: italic; }
 
+.sidebar-nav {
+    margin-top: 8px;
+    padding: 4px 0;
+    border-top: 1px solid var(--border);
+}
+
+.sidebar-nav-link {
+    display: block;
+    padding: 4px 12px;
+    font-size: 13px;
+    color: var(--fg-muted);
+    text-decoration: none;
+    border-radius: 3px;
+    margin: 0 4px;
+}
+
+.sidebar-nav-link:hover { background: var(--bg-hover); color: var(--fg); text-decoration: none; }
+.sidebar-nav-link.active { color: var(--accent); }
+
 /* ── Sync status bar ─────────────────────────────────────────────────── */
 .sync-bar {
     height: var(--statusbar-height);

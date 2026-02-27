@@ -1,0 +1,81 @@
+name: Build Windows Installer
+
+# Triggers:
+#   - Push a version tag:  git tag v1.0 && git push --tags
+#     → builds the installer and creates a GitHub Release with the .exe attached.
+#   - Manual run via Actions UI (workflow_dispatch)
+#     → builds the installer and uploads it as a workflow artifact (no release created).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g. 1.0) — used when running manually'
+        required: false
+        default: '0.001'
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Strip the leading 'v' from the tag (v1.0 → 1.0).
+      # For manual runs, use the version input instead.
+      - name: Determine version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish Indentr.UI (win-x64 self-contained)
+        shell: bash
+        run: |
+          dotnet publish Indentr.UI/Indentr.UI.csproj \
+            --configuration Release \
+            --runtime win-x64 \
+            --self-contained true \
+            --output "Indentr.UI/bin/Release/net10.0/win-x64/publish"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+              "/DMyAppVersion=$ver" `
+              "installer\indentr.iss"
+
+      # Always upload as an artifact so you can download and test the .exe
+      # from the Actions run page, regardless of whether it's a tag or manual run.
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: IndentrSetup-${{ steps.ver.outputs.version }}
+          path: installer/output/IndentrSetup-${{ steps.ver.outputs.version }}.exe
+
+      # Only create a GitHub Release when triggered by a version tag.
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Indentr v${{ steps.ver.outputs.version }}
+          files: installer/output/IndentrSetup-${{ steps.ver.outputs.version }}.exe
+          generate_release_notes: true

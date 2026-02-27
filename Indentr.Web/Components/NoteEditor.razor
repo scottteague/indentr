@@ -8,7 +8,18 @@
 {
     <div class="note-editor">
         <div class="note-header">
-            <h1 class="note-title">@_note.Title</h1>
+            @if (_note.IsRoot)
+            {
+                <h1 class="note-title">@_note.Title</h1>
+            }
+            else
+            {
+                <input class="note-title-input"
+                       value="@_currentTitle"
+                       @oninput="OnTitleInput"
+                       @onblur="OnTitleBlur"
+                       @onkeydown="OnTitleKeyDown" />
+            }
             <div class="note-actions">
                 @if (_saving)
                 {
@@ -18,7 +29,12 @@
                 {
                     <span class="status-conflict">@_conflictMessage</span>
                 }
-                <button class="btn-save" @onclick="SaveAsync" disabled="@_saving">Save</button>
+                @if (!_note.IsRoot)
+                {
+                    <button class="btn-trash" @onclick="MoveToTrashAsync"
+                            disabled="@(_saving || _deleting)">Move to Trash</button>
+                }
+                <button class="btn-save" @onclick="SaveAsync" disabled="@(_saving || _deleting)">Save</button>
             </div>
         </div>
 
@@ -53,9 +69,12 @@ else
     private Note?   _note;
     private bool    _notFound;
     private bool    _saving;
+    private bool    _deleting;
     private bool    _isDirty;
+    private bool    _titleDirty;
     private string? _conflictMessage;
     private string  _currentContent = "";
+    private string  _currentTitle   = "";
     private string  _editorId = "";
     private IReadOnlyList<AttachmentMeta> _attachments = [];
     private CancellationTokenSource? _saveCts;
@@ -87,6 +106,7 @@ else
 
         _note = note;
         _currentContent = note.Content;
+        _currentTitle   = note.Title;
         _attachments = await Session.Attachments.ListForNoteAsync(NoteId);
     }
 
@@ -132,6 +152,60 @@ else
             _ = JS.InvokeVoidAsync("open", $"/note/{id}", "_blank");
         else if (!target.StartsWith("kanban:"))
             _ = JS.InvokeVoidAsync("open", target, "_blank");
+    }
+
+    private async Task MoveToTrashAsync()
+    {
+        if (_note is null || Session.Notes is null) return;
+        var ok = await JS.InvokeAsync<bool>("confirm", $"Move \"{_note.Title}\" to Trash?");
+        if (!ok) return;
+
+        _deleting = true;
+        StateHasChanged();
+        try
+        {
+            await Session.Notes.DeleteAsync(NoteId);
+            Notifier.NotifyChanged(NoteId);
+            Nav.NavigateTo("/");
+        }
+        finally
+        {
+            _deleting = false;
+        }
+    }
+
+    private void OnTitleInput(ChangeEventArgs e)
+    {
+        _currentTitle = e.Value?.ToString() ?? "";
+        _titleDirty   = _currentTitle != _note!.Title;
+    }
+
+    private async Task OnTitleBlur()
+    {
+        if (_titleDirty) await SaveTitleAsync();
+    }
+
+    private async Task OnTitleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SaveTitleAsync();
+    }
+
+    private async Task SaveTitleAsync()
+    {
+        if (_note is null || !_titleDirty) return;
+        var trimmed = _currentTitle.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            // Revert to the last saved title.
+            _currentTitle = _note.Title;
+            _titleDirty   = false;
+            StateHasChanged();
+            return;
+        }
+        _titleDirty   = false;
+        _note.Title   = trimmed;
+        _currentTitle = trimmed;
+        await SaveAsync();
     }
 
     private async Task SaveAsync()
@@ -196,6 +270,7 @@ else
         if (fresh is null || _module is null) return;
 
         _note = fresh;
+        if (!_titleDirty) _currentTitle = fresh.Title;
         await _module.InvokeVoidAsync("setContent", _editorId, _note.Content);
     }
 

@@ -6,7 +6,7 @@ Features present in the desktop UI that are missing or incomplete in the web pro
 
 ## Note Editing
 
-- [ ] **Editable title** — the title is currently a read-only `<h1>`. Add an editable field and save on blur/enter, matching the desktop `TitleBox` behaviour including propagating link-title updates to other notes.
+- [x] **Editable title** — the title is currently a read-only `<h1>`. Add an editable field and save on blur/enter, matching the desktop `TitleBox` behaviour including propagating link-title updates to other notes.
 
 - [ ] **Formatting toolbar** — Bold, Red, Italic, Underline buttons that wrap the CodeMirror selection in the appropriate Markdown syntax. The desktop `NoteEditorControl` has these as simple wrap-selection operations.
 
@@ -16,7 +16,7 @@ Features present in the desktop UI that are missing or incomplete in the web pro
 
 - [ ] **Privacy toggle** — a Public/Private checkbox per note (hidden for root), saved on the next save. The web currently ignores `is_private` except to block access.
 
-- [ ] **Note deletion** — a way to soft-delete the current note from the note editor (e.g. a "Move to Trash" menu item or button). The desktop has this in the Notes Form `Note` menu.
+- [x] **Note deletion** — a way to soft-delete the current note from the note editor (e.g. a "Move to Trash" menu item or button). The desktop has this in the Notes Form `Note` menu.
 
 ---
 
@@ -44,13 +44,13 @@ Features present in the desktop UI that are missing or incomplete in the web pro
 
 ## Trash
 
-- [ ] **Trash page** (`/trash`) — lists all soft-deleted notes (and eventually kanban items), sorted by deletion time. Matches the desktop `TrashWindow`.
+- [x] **Trash page** (`/trash`) — lists all soft-deleted notes (and eventually kanban items), sorted by deletion time. Matches the desktop `TrashWindow`.
 
-- [ ] **Restore** — un-delete a trashed note (clears `deleted_at`).
+- [x] **Restore** — un-delete a trashed note (clears `deleted_at`).
 
-- [ ] **Permanent delete** — hard DELETE with confirmation dialog.
+- [x] **Permanent delete** — hard DELETE with confirmation dialog.
 
-- [ ] **Empty Trash** — bulk permanent-delete everything in trash.
+- [x] **Empty Trash** — bulk permanent-delete everything in trash.
 
 ---
 

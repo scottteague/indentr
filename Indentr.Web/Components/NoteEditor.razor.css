@@ -26,6 +26,25 @@
     white-space: nowrap;
 }
 
+.note-title-input {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0 0 1px 0;
+    font-size: 1.2rem;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--fg, #d4d4d4);
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid transparent;
+    outline: none;
+}
+
+.note-title-input:focus {
+    border-bottom-color: var(--accent, #64afff);
+}
+
 .note-actions {
     display: flex;
     align-items: center;
@@ -88,4 +107,24 @@
 .note-missing {
     padding: 40px 20px;
     color: var(--fg-muted, #888);
+}
+
+.btn-trash {
+    padding: 5px 14px;
+    background: transparent;
+    color: var(--fg-muted, #888);
+    border: 1px solid var(--border, #3a3a3a);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.btn-trash:hover:not(:disabled) {
+    color: #e06c75;
+    border-color: #e06c75;
+}
+
+.btn-trash:disabled {
+    opacity: 0.4;
+    cursor: default;
 }
