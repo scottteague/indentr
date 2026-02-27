@@ -149,6 +149,57 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void OnBackupClicked(object? sender, RoutedEventArgs e)
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save Database Backup",
+            SuggestedFileName = $"indentr-backup-{DateTime.Now:yyyy-MM-dd-HHmmss}.sql",
+            FileTypeChoices = [new FilePickerFileType("SQL dump") { Patterns = ["*.sql"] }]
+        });
+        if (file is null) return;
+
+        var path = file.TryGetLocalPath();
+        if (path is null) return;
+
+        var db  = App.CurrentProfile.Database;
+        var psi = new ProcessStartInfo("pg_dump")
+        {
+            UseShellExecute       = false,
+            RedirectStandardError = true,
+            CreateNoWindow        = true,
+        };
+        psi.ArgumentList.Add($"-h"); psi.ArgumentList.Add(db.Host);
+        psi.ArgumentList.Add($"-p"); psi.ArgumentList.Add(db.Port.ToString());
+        psi.ArgumentList.Add($"-U"); psi.ArgumentList.Add(db.Username);
+        psi.ArgumentList.Add($"-d"); psi.ArgumentList.Add(db.Name);
+        psi.ArgumentList.Add($"-f"); psi.ArgumentList.Add(path);
+        if (!string.IsNullOrEmpty(db.Password))
+            psi.Environment["PGPASSWORD"] = db.Password;
+
+        try
+        {
+            using var proc   = Process.Start(psi)!;
+            var       stderr = await proc.StandardError.ReadToEndAsync();
+            await proc.WaitForExitAsync();
+
+            if (proc.ExitCode == 0)
+                await MessageBox.ShowInfo(this, "Backup Complete", $"Database backed up to:\n{path}");
+            else
+                await MessageBox.ShowError(this, "Backup Failed",
+                    string.IsNullOrWhiteSpace(stderr) ? "pg_dump exited with an error." : stderr);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception || ex is FileNotFoundException)
+        {
+            await MessageBox.ShowError(this, "Backup Failed",
+                "pg_dump was not found. Please install PostgreSQL client tools and ensure they are in your PATH.");
+        }
+        catch (Exception ex)
+        {
+            await MessageBox.ShowError(this, "Backup Failed", ex.Message);
+        }
+    }
+
     private async void OnManageProfilesClicked(object? sender, RoutedEventArgs e)
     {
         var config   = ConfigManager.Load();
