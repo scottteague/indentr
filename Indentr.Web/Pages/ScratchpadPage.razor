@@ -26,9 +26,11 @@
 @code {
     private Scratchpad? _pad;
     private bool   _saving;
+    private bool   _isDirty;
     private string? _conflictMessage;
     private string _currentContent = "";
     private string _editorId = "cm-scratchpad";
+    private CancellationTokenSource? _saveCts;
 
     private IJSObjectReference?              _module;
     private DotNetObjectReference<ScratchpadPage>? _dotNetRef;
@@ -51,7 +53,26 @@
         await _module.InvokeVoidAsync("create", _editorId, _pad.Content, _dotNetRef);
     }
 
-    [JSInvokable] public void OnContentChanged(string content) => _currentContent = content;
+    [JSInvokable]
+    public void OnContentChanged(string content)
+    {
+        _currentContent = content;
+        _isDirty = true;
+
+        _saveCts?.Cancel();
+        _saveCts?.Dispose();
+        _saveCts = new CancellationTokenSource();
+        var token = _saveCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(3000, token);
+                await InvokeAsync(SaveAsync);
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
     [JSInvokable] public Task SaveFromKeyboard() => SaveAsync();
     [JSInvokable] public void OnLinkClicked(string target) { } // no-op for scratchpad
 
@@ -66,6 +87,7 @@
         {
             _currentContent = await _module!.InvokeAsync<string>("getContent", _editorId);
             _pad.Content = _currentContent;
+            _isDirty = false;
             var originalHash = _pad.ContentHash;
             var result = await Session.Scratchpads.SaveAsync(_pad, originalHash);
 
@@ -90,6 +112,18 @@
 
     public async ValueTask DisposeAsync()
     {
+        _saveCts?.Cancel();
+        _saveCts?.Dispose();
+        if (_isDirty && _pad is not null && Session.Scratchpads is not null)
+        {
+            try
+            {
+                _pad.Content = _currentContent;
+                await Session.Scratchpads.SaveAsync(_pad, _pad.ContentHash);
+            }
+            catch { }
+        }
+
         if (_module is not null)
         {
             try
@@ -97,7 +131,7 @@
                 await _module.InvokeVoidAsync("destroy", _editorId);
                 await _module.DisposeAsync();
             }
-            catch (JSDisconnectedException) { }  // tab closed — circuit already gone
+            catch (JSDisconnectedException) { }
             catch (JSException) { }
         }
         _dotNetRef?.Dispose();

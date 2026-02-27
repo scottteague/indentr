@@ -1,46 +1,85 @@
-# TODO
+# Web Parity TODO
 
-## Local/remote database sync
+Features present in the desktop UI that are missing or incomplete in the web project.
 
-### Done
-- [x] **Migration 005** — `sync_log` table, `sync_state` table, `fn_sync_log()` trigger function applied to all seven entity tables (`notes`, `scratchpads`, `users`, `attachments`, `kanban_boards`, `kanban_columns`, `kanban_cards`). `updated_at` added to `kanban_columns` and `kanban_cards` with auto-maintenance trigger.
-- [x] **Config model** — `DatabaseProfile.RemoteDatabase: DatabaseConfig?` added to `AppConfig`. Null = sync disabled. JSON-serialisable; no migration of existing config files needed (field is just absent/null for existing profiles).
+---
 
-### Remaining
+## Note Editing
 
-- [x] **`ISyncService` interface** (`Indentr.Core`) — `SyncOnceAsync()` returning a `SyncResult` (success, offline, failed + message), `GetLastSyncedAtAsync()`
+- [ ] **Editable title** — the title is currently a read-only `<h1>`. Add an editable field and save on blur/enter, matching the desktop `TitleBox` behaviour including propagating link-title updates to other notes.
 
-- [x] **Profile editor — remote DB fields** (`Indentr.UI`) — add optional Remote Database section (host, port, db name, username, password) to `FirstRunWindow` / `ProfilePickerWindow`; collapsed/hidden by default when not configured. Include a **Test connection** button that attempts `OpenAsync` with a short timeout and reports success/failure inline. This goes in early so you have a real way to configure a remote without hand-editing the JSON.
+- [ ] **Formatting toolbar** — Bold, Red, Italic, Underline buttons that wrap the CodeMirror selection in the appropriate Markdown syntax. The desktop `NoteEditorControl` has these as simple wrap-selection operations.
 
-- [x] **SyncService — connect + remote migration** (`Indentr.Data`) — open a connection to the remote using `RemoteDatabase` from the profile; if unreachable return `SyncResult.Offline` immediately. On first successful connect, run `DatabaseMigrator` against the remote to ensure its schema is current.
+- [ ] **Link insertion dialog** — a UI to insert `[text](note:UUID)` or `[text](kanban:UUID)` links without knowing the ID. On desktop this is the `LinkTargetDialog` with a note-picker. Could be a search-as-you-type modal.
 
-- [x] **SyncService — push phase, entities** — drain `sync_log` in `id` order, skipping attachments for now:
-  - Upsert `users` referenced by notes before the notes themselves (FK ordering)
-  - Upsert `notes`, `scratchpads`, `kanban_boards`, `kanban_columns`, `kanban_cards` via `INSERT … ON CONFLICT (id) DO UPDATE SET …`
-  - DELETE: delete from remote, ignore if already gone
-  - Delete each `sync_log` entry only after the remote confirms the operation
+- [ ] **New child note** — a "+ Note" action that creates a child note from the current selection and inserts an in-app link at the cursor, matching `OnNewChildNoteClick` on the desktop.
 
-- [x] **Sync status bar + sync button** (`Indentr.UI`) — single-line strip at the bottom of `MainWindow`. Shows `Synced at HH:MM`, `Offline`, or `Sync failed: <short message>`. Hidden when no `RemoteDatabase` is configured. Include a button that triggers `SyncService.SyncOnceAsync()` immediately.
+- [ ] **Privacy toggle** — a Public/Private checkbox per note (hidden for root), saved on the next save. The web currently ignores `is_private` except to block access.
 
-- [x] **SyncService — pull phase, upsert + conflict detection** — query remote for all entity rows with `updated_at > last_synced_at`; process users first, then notes, scratchpads, kanban hierarchy:
-  - Row absent locally → insert it
-  - Row present locally, unmodified since `last_synced_at` → update it
-  - Row present locally, also modified since `last_synced_at` → conflict: keep local, create `[CONFLICT] title (by user on timestamp)` sibling
+- [ ] **Note deletion** — a way to soft-delete the current note from the note editor (e.g. a "Move to Trash" menu item or button). The desktop has this in the Notes Form `Note` menu.
 
-- [x] **SyncService — pull phase, remote-delete detection** — compare UUID sets per entity type between remote and local; a UUID present locally but absent remotely means a remote delete:
-  - Local row unmodified since `last_synced_at` → delete locally
-  - Local row modified since `last_synced_at` → local edit wins; push it back on next sync cycle
+---
 
-- [x] **SyncService — `sync_state` update + partial-failure recovery** — `UPDATE sync_state SET last_synced_at = NOW()` only after both push and pull complete successfully. If push succeeds but pull fails, `last_synced_at` is not advanced; safe to retry from the same point.
+## Kanban Boards
 
-- [x] **Attachment push** — extend the push phase to handle `attachments` sync_log entries: read bytes via `lo_get(lo_oid)` locally, write via `lo_from_bytea(0, data)` on remote, upsert the `attachments` metadata row with the new remote OID. Files are always uploaded to keep the remote the one true copy.
+- [ ] **Kanban board page** — a `/board/{id}` route with a full board view: horizontally scrollable column list, card list per column, editable column and card titles. The desktop `KanbanWindow` is the reference.
 
-- [x] **Auto-sync timer** (`Indentr.UI`) — fires every 10 minutes in the background when a remote is configured; calls `SyncService.SyncOnceAsync()` and updates the status bar.
+- [ ] **Kanban board creation** — a "+ Board" action in the note editor that creates a board and inserts a `kanban:UUID` link, matching `OnNewBoardClick`.
 
-- [x] **Shift+Ctrl+S** (`Indentr.UI`) — saves all open windows (root note + all open `NotesWindow`s + scratchpad) then runs a full sync cycle; wire up in `MainWindow`.
+- [ ] **Clicking kanban links** — `OnLinkClicked` in `NoteEditor.razor` currently ignores `kanban:` targets. It should navigate to `/board/{id}`.
 
-### Nice-to-haves / later
-- [ ] Lazy attachment download — skip byte transfer on pull, download on first open; needs a "not yet downloaded" flag or a local LO stub
-- [x] Deduplicate consecutive sync_log entries for the same entity (e.g. 10 rapid UPDATEs → collapse to one) to reduce push overhead
-- [x] Handle clock skew between local and remote (NTP drift can cause `updated_at > last_synced_at` to miss rows)
-- [x] Expose `last_synced_at` in the profile picker for visibility
+- [ ] **Card actions** — rename, delete, link to an existing note, create and link a new note (right-click context menu equivalents on desktop).
+
+- [ ] **Card keyboard navigation** — arrow keys to move selection, Shift+arrow to reorder cards and move between columns.
+
+---
+
+## Attachments
+
+- [ ] **Attachment upload** — a file picker to attach files to the current note. The desktop `OnAttachClick` stores the file as a PostgreSQL large object. Needs a multipart upload endpoint or direct Blazor streaming.
+
+- [ ] **Attachment delete** — remove an attachment from a note (with confirmation). Currently the web only lists attachments as download links.
+
+---
+
+## Trash
+
+- [ ] **Trash page** (`/trash`) — lists all soft-deleted notes (and eventually kanban items), sorted by deletion time. Matches the desktop `TrashWindow`.
+
+- [ ] **Restore** — un-delete a trashed note (clears `deleted_at`).
+
+- [ ] **Permanent delete** — hard DELETE with confirmation dialog.
+
+- [ ] **Empty Trash** — bulk permanent-delete everything in trash.
+
+---
+
+## Management / Orphans
+
+- [ ] **Orphan notes page** (`/manage` or tab on a management page) — lists notes with no parent. Matches the Orphan Notes View in the desktop Management Form.
+
+- [ ] **Tree browser** — a full browsable tree to pick a parent note when linking an orphan. The desktop Management Form's Tree Browser View is the reference.
+
+- [ ] **Insert link in parent** — appends an in-app link to a chosen parent note, triggering the normal `SyncParentLinksAsync` adoption path.
+
+---
+
+## Export / Import
+
+- [ ] **Single-note export** — download the current note as a `.md` file, with in-app links stripped to plain text.
+
+- [ ] **Subtree export** — trigger `SubtreeExporter.ExportAsync` and serve the result as a `.zip` download (since the user can't pick a local folder from a browser).
+
+- [ ] **Subtree import** — upload a `.zip` export and call `SubtreeImporter.ImportAsync`.
+
+---
+
+## Sync
+
+- [ ] **Sync status bar** — `SyncStatusBar.razor` is currently empty. Wire up `SyncService` and show last-synced time, offline/error state, and a manual sync button, when a remote DB is configured in the profile.
+
+---
+
+## Profile Management
+
+- [ ] **In-app profile switching** — the web can auto-select from `LastProfile` but there is no UI to add, edit, or delete profiles, or to switch to a different one without editing `config.json` by hand.

@@ -53,10 +53,12 @@ else
     private Note?   _note;
     private bool    _notFound;
     private bool    _saving;
+    private bool    _isDirty;
     private string? _conflictMessage;
     private string  _currentContent = "";
     private string  _editorId = "";
     private IReadOnlyList<AttachmentMeta> _attachments = [];
+    private CancellationTokenSource? _saveCts;
 
     private IJSObjectReference?         _module;
     private DotNetObjectReference<NoteEditor>? _dotNetRef;
@@ -99,7 +101,26 @@ else
     }
 
     [JSInvokable]
-    public void OnContentChanged(string content) => _currentContent = content;
+    public void OnContentChanged(string content)
+    {
+        _currentContent = content;
+        _isDirty = true;
+
+        // Debounce: cancel any pending auto-save and schedule a new one.
+        _saveCts?.Cancel();
+        _saveCts?.Dispose();
+        _saveCts = new CancellationTokenSource();
+        var token = _saveCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(3000, token);
+                await InvokeAsync(SaveAsync);
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
 
     [JSInvokable]
     public Task SaveFromKeyboard() => SaveAsync();
@@ -124,6 +145,7 @@ else
         {
             _currentContent = await _module!.InvokeAsync<string>("getContent", _editorId);
             _note.Content = _currentContent;
+            _isDirty = false;
 
             var originalHash = _note.ContentHash;
             var result = await Session.Notes.SaveAsync(_note, originalHash);
@@ -181,6 +203,21 @@ else
     {
         Notifier.NoteChanged -= HandleChange;
 
+        // Cancel pending debounced save, then do a final quiet save if there are
+        // unsaved edits. _currentContent is already current server-side (kept up to
+        // date by OnContentChanged), so no JS interop is needed here.
+        _saveCts?.Cancel();
+        _saveCts?.Dispose();
+        if (_isDirty && _note is not null && Session.Notes is not null)
+        {
+            try
+            {
+                _note.Content = _currentContent;
+                await Session.Notes.SaveAsync(_note, _note.ContentHash);
+            }
+            catch { }
+        }
+
         if (_module is not null)
         {
             try
@@ -188,8 +225,8 @@ else
                 await _module.InvokeVoidAsync("destroy", _editorId);
                 await _module.DisposeAsync();
             }
-            catch (JSDisconnectedException) { }  // tab closed — circuit already gone
-            catch (JSException) { }               // any other interop failure during teardown
+            catch (JSDisconnectedException) { }
+            catch (JSException) { }
         }
 
         _dotNetRef?.Dispose();

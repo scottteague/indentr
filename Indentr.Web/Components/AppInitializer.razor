@@ -53,13 +53,26 @@ else
             return;
         }
 
-        // 2+ profiles — show picker
+        // 2+ profiles — use LastProfile if it matches, otherwise show picker
+        var last = config.Profiles.FirstOrDefault(p => p.Name == config.LastProfile);
+        if (last is not null)
+        {
+            await Session.InitializeAsync(last);
+            return;
+        }
+
         _pickingProfile = true;
     }
 
     private async Task OnProfileSelected(DatabaseProfile profile)
     {
         _pickingProfile = false;
+
+        // Persist the choice so future circuits (new tabs) auto-select it
+        var config = ConfigManager.Load();
+        config.LastProfile = profile.Name;
+        ConfigManager.Save(config);
+
         await Session.InitializeAsync(profile);
         StateHasChanged();
     }

@@ -43,6 +43,12 @@ public static class ConfigManager
         }
     }
 
+    public static void Save(AppConfig config)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
+        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(config, JsonOptions));
+    }
+
     private sealed class LegacyAppConfig
     {
         public string        Username { get; set; } = "";
