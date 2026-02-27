@@ -9,6 +9,7 @@ public partial class ManagementWindow : Window
 {
     private Note?         _selectedOrphan;
     private NoteTreeNode? _selectedTreeNode;
+    private NoteTreeNode? _selectedSharedNode;
     private bool          _initialTabSet;
 
     public ManagementWindow()
@@ -16,13 +17,15 @@ public partial class ManagementWindow : Window
         InitializeComponent();
         _ = LoadOrphansAsync();
         _ = LoadTreeAsync();
+        _ = LoadSharedNotesAsync();
 
-        // Refresh both lists whenever this window regains focus, so deletions
+        // Refresh all lists whenever this window regains focus, so deletions
         // or changes made in a Notes window are immediately reflected here.
         Activated += (_, _) =>
         {
             _ = LoadOrphansAsync();
             _ = LoadTreeAsync();
+            _ = LoadSharedNotesAsync();
         };
     }
 
@@ -130,6 +133,85 @@ public partial class ManagementWindow : Window
         if (NoteTree.SelectedItem is NoteTreeNode node)
             await NotesWindow.OpenAsync(node.Id);
     }
+
+    // ── Shared Notes tab ──────────────────────────────────────────────────────
+
+    private async Task LoadSharedNotesAsync()
+    {
+        var allUsers = await App.Users.GetAllAsync();
+        var roots    = new List<NoteTreeNode>();
+
+        foreach (var user in allUsers)
+        {
+            if (user.Id == App.CurrentUser.Id) continue;
+
+            var root = await App.Notes.GetRootAsync(user.Id);
+            if (root is null) continue;
+
+            // Represent each other user as a top-level tree node labelled by username.
+            var userNode = new NoteTreeNode
+            {
+                Id          = root.Id,
+                Title       = user.Username,
+                HasChildren = true,
+                CreatedBy   = root.CreatedBy,
+            };
+            await ExpandSharedNodeAsync(userNode);
+
+            // Only include users who have at least one public note visible to us.
+            if (userNode.Children.Count > 0 || userNode.HasChildren)
+                roots.Add(userNode);
+        }
+
+        SharedTree.ItemsSource = roots;
+        _selectedSharedNode    = null;
+        OpenSharedNoteButton.IsEnabled = false;
+    }
+
+    private async Task ExpandSharedNodeAsync(NoteTreeNode node)
+    {
+        if (node.IsLoaded) return;
+        var children = await App.Notes.GetChildrenAsync(node.Id, App.CurrentUser.Id);
+        node.Children.Clear();
+        node.Children.AddRange(children);
+        node.IsLoaded   = true;
+        node.IsExpanded = children.Any();
+
+        // Pre-load one level so the tree shows expand arrows correctly.
+        foreach (var child in node.Children)
+            await ExpandSharedNodeAsync(child);
+    }
+
+    private void OnSharedNodeSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        _selectedSharedNode            = SharedTree.SelectedItem as NoteTreeNode;
+        OpenSharedNoteButton.IsEnabled = _selectedSharedNode is not null;
+        CopySharedLinkButton.IsEnabled = _selectedSharedNode is not null;
+    }
+
+    private async void OnOpenSharedNoteClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_selectedSharedNode is null) return;
+        await NotesWindow.OpenAsync(_selectedSharedNode.Id);
+    }
+
+    private async void OnCopySharedLinkClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_selectedSharedNode is null) return;
+        var link = $"[{_selectedSharedNode.Title}](note:{_selectedSharedNode.Id})";
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+        if (clipboard is not null)
+            await clipboard.SetTextAsync(link);
+    }
+
+    private async void OnSharedNodeDoubleTapped(object? sender, Avalonia.Input.TappedEventArgs e)
+    {
+        if (SharedTree.SelectedItem is NoteTreeNode node)
+            await NotesWindow.OpenAsync(node.Id);
+    }
+
+    private async void OnRefreshShared(object? sender, RoutedEventArgs e) =>
+        await LoadSharedNotesAsync();
 
     private async void OnSelectParentClicked(object? sender, RoutedEventArgs e)
     {

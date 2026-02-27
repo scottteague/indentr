@@ -6,4 +6,5 @@ public interface IUserRepository
 {
     Task<User?> GetByUsernameAsync(string username);
     Task<User> GetOrCreateAsync(string username);
+    Task<IReadOnlyList<User>> GetAllAsync();
 }

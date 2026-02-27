@@ -31,6 +31,19 @@ public class UserRepository(string connectionString) : IUserRepository
         return MapUser(reader);
     }
 
+    public async Task<IReadOnlyList<User>> GetAllAsync()
+    {
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "SELECT id, username, created_at FROM users ORDER BY username", conn);
+        var users = new List<User>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            users.Add(MapUser(reader));
+        return users;
+    }
+
     private static User MapUser(NpgsqlDataReader r) => new()
     {
         Id = r.GetGuid(0),
