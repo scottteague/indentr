@@ -514,7 +514,7 @@ Each column panel contains an editable title, a scrollable card list, a **× del
 | `←` / `→`                 | Move selection to adjacent column. |
 | `Shift+↑` / `Shift+↓`    | Move card up/down within column. Persisted immediately. |
 | `Shift+←` / `Shift+→`    | Move card to adjacent column. Persisted immediately. |
-| `F2` or `Enter`           | Rename the selected card. |
+| `F2`            			| Rename the selected card. |
 | `Delete`                  | Delete the selected card (with confirmation). |
 
 ### Data Model

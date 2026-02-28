@@ -23,7 +23,7 @@
 
         <!-- Hint bar -->
         <TextBlock DockPanel.Dock="Top"
-                   Text="Arrows: navigate  •  Shift+Arrows: move card  •  F2/Enter: rename  •  Del: delete"
+                   Text="Arrows: navigate  •  Shift+Arrows: move card  •  F2: rename  •  Del: delete"
                    FontSize="11" Foreground="Gray" Margin="12,0,10,6" />
 
         <!-- Column scroll area (fills remaining space) -->
