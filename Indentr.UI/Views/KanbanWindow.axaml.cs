@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Indentr.Core.Models;
 
 namespace Indentr.UI.Views;
@@ -247,6 +248,8 @@ public partial class KanbanWindow : Window
         // Pull keyboard focus into the window so arrow keys are handled here,
         // not by whatever control had focus before (column title box, editor, etc.)
         ColumnsPanel.Focus();
+        // Defer so layout has a chance to run first (important after BuildBoardUI rebuilds the tree).
+        Dispatcher.UIThread.Post(() => border.BringIntoView(), DispatcherPriority.Loaded);
     }
 
     private static void SetCardSelected(Border border, bool selected)
