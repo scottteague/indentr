@@ -495,7 +495,7 @@ public partial class NoteEditorControl : UserControl
 
     private async Task DeleteAttachmentAsync(AttachmentMeta meta, Button chip)
     {
-        var window    = TopLevel.GetTopLevel(this) as Window;
+        if (TopLevel.GetTopLevel(this) is not Window window) return;
         var confirmed = await MessageBox.ShowConfirm(
             window, "Delete Attachment", $"Delete \"{meta.Filename}\"?");
         if (!confirmed) return;

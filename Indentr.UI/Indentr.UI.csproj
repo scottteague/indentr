@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <!-- Required for Avalonia AXAML compilation -->
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- AVLN3001: windows with private constructors are opened via static factory methods, not the XAML loader -->
+    <NoWarn>$(NoWarn);AVLN3001</NoWarn>
     <!-- Embeds the icon into the .exe (visible in File Explorer and taskbar) -->
     <ApplicationIcon>img\Organiz.ico</ApplicationIcon>
   </PropertyGroup>
