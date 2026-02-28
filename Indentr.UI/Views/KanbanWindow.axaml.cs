@@ -487,14 +487,14 @@ public partial class KanbanWindow : Window
 
         fromCol.Cards.Remove(card);
         card.ColumnId = toCol.Id;
-        toCol.Cards.Add(card);
+        toCol.Cards.Insert(0, card);
 
         await App.Kanban.MoveCardToColumnAsync(cardId, toCol.Id);
         await App.Kanban.RenumberColumnCardsAsync(fromCol.Id, fromCol.Cards.Select(c => c.Id).ToList());
         await App.Kanban.RenumberColumnCardsAsync(toCol.Id,   toCol.Cards.Select(c => c.Id).ToList());
 
         BuildBoardUI();
-        SelectCardAt(toColIdx, toCol.Cards.Count - 1);
+        SelectCardAt(toColIdx, 0);
     }
 
     // ── Column operations ─────────────────────────────────────────────────────

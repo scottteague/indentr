@@ -224,15 +224,17 @@ public class KanbanRepository(string connectionString) : IKanbanRepository
         if (orderedCardIds.Count == 0) return;
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
+        await using var batch = new NpgsqlBatch(conn);
         for (int i = 0; i < orderedCardIds.Count; i++)
         {
-            await using var cmd = new NpgsqlCommand(
-                "UPDATE kanban_cards SET sort_order = @ord WHERE id = @id AND column_id = @cid", conn);
-            cmd.Parameters.AddWithValue("ord", i);
-            cmd.Parameters.AddWithValue("id", orderedCardIds[i]);
-            cmd.Parameters.AddWithValue("cid", columnId);
-            await cmd.ExecuteNonQueryAsync();
+            var bcmd = new NpgsqlBatchCommand(
+                "UPDATE kanban_cards SET sort_order = @ord WHERE id = @id AND column_id = @cid");
+            bcmd.Parameters.AddWithValue("ord", i);
+            bcmd.Parameters.AddWithValue("id",  orderedCardIds[i]);
+            bcmd.Parameters.AddWithValue("cid", columnId);
+            batch.BatchCommands.Add(bcmd);
         }
+        await batch.ExecuteNonQueryAsync();
     }
 
     public async Task DeleteBoardAsync(Guid boardId)
