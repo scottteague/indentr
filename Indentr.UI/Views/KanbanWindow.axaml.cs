@@ -102,6 +102,16 @@ public partial class KanbanWindow : Window
             _ = App.Kanban.UpdateColumnTitleAsync(col.Id, newTitle);
         };
 
+        int ci = _columns.IndexOf(col);
+
+        var moveLeftBtn = new Button { Content = "◀", Padding = new Thickness(4, 0), IsEnabled = ci > 0 };
+        ToolTip.SetTip(moveLeftBtn, "Move column left");
+        moveLeftBtn.Click += (_, _) => _ = MoveColumnAsync(_columns.IndexOf(col), -1);
+
+        var moveRightBtn = new Button { Content = "▶", Padding = new Thickness(4, 0), IsEnabled = ci < _columns.Count - 1 };
+        ToolTip.SetTip(moveRightBtn, "Move column right");
+        moveRightBtn.Click += (_, _) => _ = MoveColumnAsync(_columns.IndexOf(col), +1);
+
         var deleteColBtn = new Button
         {
             Content = "×",
@@ -111,8 +121,12 @@ public partial class KanbanWindow : Window
         deleteColBtn.Click += (_, _) => _ = DeleteColumnAsync(col.Id);
 
         var header = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
-        DockPanel.SetDock(deleteColBtn, Dock.Right);
+        DockPanel.SetDock(deleteColBtn,  Dock.Right);
+        DockPanel.SetDock(moveRightBtn,  Dock.Right);
+        DockPanel.SetDock(moveLeftBtn,   Dock.Right);
         header.Children.Add(deleteColBtn);
+        header.Children.Add(moveRightBtn);
+        header.Children.Add(moveLeftBtn);
         header.Children.Add(titleBox);
 
         // ── Cards panel ────────────────────────────────────────────────────
@@ -523,6 +537,18 @@ public partial class KanbanWindow : Window
 
         var col = await App.Kanban.AddColumnAsync(_board.Id, title);
         _columns.Add(col);
+        BuildBoardUI();
+    }
+
+    private async Task MoveColumnAsync(int ci, int direction)
+    {
+        int newIdx = ci + direction;
+        if (newIdx < 0 || newIdx >= _columns.Count) return;
+
+        (_columns[ci], _columns[newIdx]) = (_columns[newIdx], _columns[ci]);
+
+        await App.Kanban.RenumberColumnsAsync(_board.Id, _columns.Select(c => c.Id).ToList());
+
         BuildBoardUI();
     }
 

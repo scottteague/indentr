@@ -13,6 +13,7 @@ public interface IKanbanRepository
 
     Task<KanbanColumn> AddColumnAsync(Guid boardId, string title);
     Task UpdateColumnTitleAsync(Guid columnId, string title);
+    Task RenumberColumnsAsync(Guid boardId, IReadOnlyList<Guid> orderedColumnIds);
     Task DeleteColumnAsync(Guid columnId);
 
     Task<KanbanCard> AddCardAsync(Guid columnId, string title);

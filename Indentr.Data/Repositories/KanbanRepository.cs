@@ -134,6 +134,24 @@ public class KanbanRepository(string connectionString) : IKanbanRepository
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task RenumberColumnsAsync(Guid boardId, IReadOnlyList<Guid> orderedColumnIds)
+    {
+        if (orderedColumnIds.Count == 0) return;
+        await using var conn = new NpgsqlConnection(connectionString);
+        await conn.OpenAsync();
+        await using var batch = new NpgsqlBatch(conn);
+        for (int i = 0; i < orderedColumnIds.Count; i++)
+        {
+            var bcmd = new NpgsqlBatchCommand(
+                "UPDATE kanban_columns SET sort_order = @ord WHERE id = @id AND board_id = @bid");
+            bcmd.Parameters.AddWithValue("ord", i);
+            bcmd.Parameters.AddWithValue("id",  orderedColumnIds[i]);
+            bcmd.Parameters.AddWithValue("bid", boardId);
+            batch.BatchCommands.Add(bcmd);
+        }
+        await batch.ExecuteNonQueryAsync();
+    }
+
     public async Task DeleteColumnAsync(Guid columnId)
     {
         await using var conn = new NpgsqlConnection(connectionString);
