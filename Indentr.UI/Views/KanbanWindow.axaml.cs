@@ -368,10 +368,12 @@ public partial class KanbanWindow : Window
 
         var card = await App.Kanban.AddCardAsync(columnId, title);
         var col  = _columns.First(c => c.Id == columnId);
-        col.Cards.Add(card);
+        col.Cards.Insert(0, card);
+
+        await App.Kanban.RenumberColumnCardsAsync(col.Id, col.Cards.Select(c => c.Id).ToList());
 
         BuildBoardUI();
-        SelectCardAt(_columns.IndexOf(col), col.Cards.Count - 1);
+        SelectCardAt(_columns.IndexOf(col), 0);
     }
 
     private async Task RenameCardAsync(KanbanCard card)
