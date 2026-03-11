@@ -28,7 +28,7 @@ Features present in the desktop UI that are missing or incomplete in the web pro
 
 - [x] **Clicking kanban links** — `OnLinkClicked` in `NoteEditor.razor` currently ignores `kanban:` targets. It should navigate to `/board/{id}`.
 
-- [x] **Card actions** — rename (double-click), delete. Link to note / create+link deferred.
+- [x] **Card actions** — rename (double-click), delete, link to existing note (search modal), create and link new note, unlink.
 
 - [x] **Card keyboard navigation** — arrow keys to move selection, Shift+arrow to reorder cards and move between columns.
 

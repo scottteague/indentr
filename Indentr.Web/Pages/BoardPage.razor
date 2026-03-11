@@ -1,5 +1,8 @@
 @page "/board/{Id:guid}"
+@using System.Security.Cryptography
+@using System.Text
 @inject AppSession Session
+@inject NavigationManager Nav
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -74,6 +77,13 @@ else
                                 else
                                 {
                                     <span class="card-title" @ondblclick="() => StartEditCard(card)">@card.Title</span>
+                                    @if (card.NoteId is not null)
+                                    {
+                                        <a class="card-note-indicator" href="/note/@card.NoteId"
+                                           title="Open linked note" @onclick:stopPropagation="true">📄</a>
+                                    }
+                                    <button class="card-link-btn" @onclick:stopPropagation="true"
+                                            @onclick="() => OpenLinkModal(card)" title="Link to note">🔗</button>
                                     <button class="card-del-btn" @onclick:stopPropagation="true"
                                             @onclick="() => DeleteCardAsync(card, col)" title="Delete">×</button>
                                 }
@@ -101,6 +111,40 @@ else
                 }
             </div>
         </div>
+
+        @if (_linkModalCard is not null)
+        {
+            <div class="modal-overlay" @onclick="CloseLinkModal">
+                <div class="link-modal" @onclick:stopPropagation="true">
+                    <div class="link-modal-title">Link card to note</div>
+                    <input class="link-search-input" value="@_linkSearch"
+                           @oninput="OnLinkSearchInput"
+                           placeholder="Search notes…"
+                           @ref="_linkSearchRef" />
+                    <div class="link-results">
+                        @foreach (var note in _linkResults)
+                        {
+                            <button class="link-result" @onclick="() => SelectNoteAsync(note)">@note.Title</button>
+                        }
+                        @if (_linkResults.Count == 0 && !string.IsNullOrWhiteSpace(_linkSearch))
+                        {
+                            <div class="link-empty">No notes found.</div>
+                        }
+                    </div>
+                    <div class="link-modal-footer">
+                        @if (!string.IsNullOrWhiteSpace(_linkSearch))
+                        {
+                            <button class="link-create-btn" @onclick="CreateAndLinkNoteAsync">+ Create "@_linkSearch.Trim()" as new note</button>
+                        }
+                        @if (_linkModalCard.NoteId is not null)
+                        {
+                            <button class="link-unlink-btn" @onclick="UnlinkNoteAsync">Unlink note</button>
+                        }
+                        <button class="link-cancel-btn" @onclick="CloseLinkModal">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        }
     </div>
 }
 
@@ -134,6 +178,14 @@ else
     private ElementReference _colInputRef;
     private ElementReference _cardInputRef;
     private ElementReference _newColInputRef;
+
+    // Note link modal
+    private KanbanCard?        _linkModalCard;
+    private string             _linkSearch  = "";
+    private List<Note>         _linkResults = new();
+    private CancellationTokenSource? _searchCts;
+    private ElementReference   _linkSearchRef;
+    private bool               _focusLinkSearch;
 
     // Deferred scroll
     private string? _pendingScrollCardId;
@@ -169,6 +221,7 @@ else
             _pendingScrollCardId = null;
             await _boardModule.InvokeVoidAsync("scrollCardIntoView", id);
         }
+        if (_focusLinkSearch) { _focusLinkSearch = false; await _linkSearchRef.FocusAsync(); }
         if (_focusTitle)    { _focusTitle    = false; await _titleInputRef.FocusAsync(); }
         if (_focusColInput) { _focusColInput = false; await _colInputRef.FocusAsync();   }
         if (_focusCardInput){ _focusCardInput= false; await _cardInputRef.FocusAsync();  }
@@ -413,6 +466,93 @@ else
                 _pendingScrollCardId = $"card-{_columns[_selColIdx].Cards[_selCardIdx].Id:N}";
             StateHasChanged();
         }
+    }
+
+    // ── Note link modal ───────────────────────────────────────────────────────
+
+    private void OpenLinkModal(KanbanCard card)
+    {
+        _linkModalCard  = card;
+        _linkSearch     = "";
+        _linkResults    = new();
+        _focusLinkSearch = true;
+    }
+
+    private void CloseLinkModal()
+    {
+        _searchCts?.Cancel();
+        _linkModalCard = null;
+    }
+
+    private void OnLinkSearchInput(ChangeEventArgs e)
+    {
+        _linkSearch = e.Value?.ToString() ?? "";
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = new CancellationTokenSource();
+        var token = _searchCts.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(300, token);
+                await InvokeAsync(RunSearchAsync);
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
+
+    private async Task RunSearchAsync()
+    {
+        if (Session.Notes is null || Session.CurrentUser is null) return;
+        if (string.IsNullOrWhiteSpace(_linkSearch))
+        {
+            _linkResults = new();
+            StateHasChanged();
+            return;
+        }
+        var results = await Session.Notes.SearchAsync(_linkSearch, Session.CurrentUser.Id);
+        _linkResults = results.Take(8).ToList();
+        StateHasChanged();
+    }
+
+    private async Task SelectNoteAsync(Note note)
+    {
+        if (_linkModalCard is null) return;
+        await Session.Kanban!.SetCardNoteAsync(_linkModalCard.Id, note.Id);
+        _linkModalCard.NoteId = note.Id;
+        CloseLinkModal();
+    }
+
+    private async Task CreateAndLinkNoteAsync()
+    {
+        if (_linkModalCard is null || Session.Notes is null || Session.CurrentUser is null) return;
+        var title = _linkSearch.Trim();
+        if (string.IsNullOrEmpty(title)) return;
+
+        var userId = Session.CurrentUser.Id;
+        var note = await Session.Notes.CreateAsync(new Note
+        {
+            Id          = Guid.NewGuid(),
+            Title       = title,
+            Content     = "",
+            ContentHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(""))),
+            OwnerId     = userId,
+            CreatedBy   = userId,
+            IsPrivate   = false,
+            IsRoot      = false,
+        });
+        await Session.Kanban!.SetCardNoteAsync(_linkModalCard.Id, note.Id);
+        _linkModalCard.NoteId = note.Id;
+        CloseLinkModal();
+    }
+
+    private async Task UnlinkNoteAsync()
+    {
+        if (_linkModalCard is null) return;
+        await Session.Kanban!.SetCardNoteAsync(_linkModalCard.Id, null);
+        _linkModalCard.NoteId = null;
+        CloseLinkModal();
     }
 
     public async ValueTask DisposeAsync()
