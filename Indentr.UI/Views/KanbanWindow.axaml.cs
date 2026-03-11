@@ -326,15 +326,21 @@ public partial class KanbanWindow : Window
             // Navigate between columns
             case Key.Left when noMod && ci > 0:
             {
-                var lc = _columns[ci - 1];
-                if (lc.Cards.Count > 0) SelectCardAt(ci - 1, Math.Min(ki, lc.Cards.Count - 1));
+                int targetCI = ci - 1;
+                while (targetCI > 0 && _columns[targetCI].Cards.Count == 0)
+                    targetCI--;
+                if (_columns[targetCI].Cards.Count > 0)
+                    SelectCardAt(targetCI, Math.Min(ki, _columns[targetCI].Cards.Count - 1));
                 e.Handled = true;
                 break;
             }
             case Key.Right when noMod && ci >= 0 && ci < _columns.Count - 1:
             {
-                var rc = _columns[ci + 1];
-                if (rc.Cards.Count > 0) SelectCardAt(ci + 1, Math.Min(ki, rc.Cards.Count - 1));
+                int targetCI = ci + 1;
+                while (targetCI < _columns.Count - 1 && _columns[targetCI].Cards.Count == 0)
+                    targetCI++;
+                if (_columns[targetCI].Cards.Count > 0)
+                    SelectCardAt(targetCI, Math.Min(ki, _columns[targetCI].Cards.Count - 1));
                 e.Handled = true;
                 break;
             }
