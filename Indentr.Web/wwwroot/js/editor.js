@@ -292,6 +292,24 @@ export function setContent(elementId, content) {
     });
 }
 
+export function getSelection(elementId) {
+    const view = editors.get(elementId);
+    if (!view) return "";
+    const { from, to } = view.state.selection.main;
+    return view.state.doc.sliceString(from, to);
+}
+
+export function replaceSelection(elementId, text) {
+    const view = editors.get(elementId);
+    if (!view) return;
+    const { from, to } = view.state.selection.main;
+    view.dispatch({
+        changes: { from, to, insert: text },
+        selection: { anchor: from + text.length }
+    });
+    view.focus();
+}
+
 export function wrapSelection(elementId, before, after) {
     const view = editors.get(elementId);
     if (!view) return;

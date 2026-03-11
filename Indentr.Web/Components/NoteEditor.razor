@@ -50,6 +50,11 @@
             <button class="fmt-btn fmt-red"       title="Red (__text__)"       disabled="@(!_editorInitialized)" @onclick='() => WrapSelectionAsync("__", "__")'>R</button>
             <button class="fmt-btn fmt-italic"    title="Italic (*text*)"      disabled="@(!_editorInitialized)" @onclick='() => WrapSelectionAsync("*", "*")'>I</button>
             <button class="fmt-btn fmt-underline" title="Underline (_text_)"   disabled="@(!_editorInitialized)" @onclick='() => WrapSelectionAsync("_", "_")'>U</button>
+            @if (!_note.IsRoot)
+            {
+                <span class="fmt-sep"></span>
+                <button class="fmt-btn fmt-wide" title="Create a new Kanban board and insert a link" disabled="@(!_editorInitialized)" @onclick="OnNewBoardAsync">+ Board</button>
+            }
         </div>
 
         @if (_attachments.Count > 0)
@@ -164,8 +169,27 @@ else
     {
         if (target.StartsWith("note:") && Guid.TryParse(target[5..], out var id))
             _ = JS.InvokeVoidAsync("open", $"/note/{id}", "_blank");
+        else if (target.StartsWith("kanban:") && Guid.TryParse(target[7..], out var bid))
+            Nav.NavigateTo($"/board/{bid}");
         else if (!target.StartsWith("kanban:"))
             _ = JS.InvokeVoidAsync("open", target, "_blank");
+    }
+
+    private async Task OnNewBoardAsync()
+    {
+        if (_module is null || Session.Kanban is null || Session.CurrentUser is null) return;
+
+        var title = await _module.InvokeAsync<string>("getSelection", _editorId);
+        title = title.Trim();
+        if (string.IsNullOrEmpty(title))
+        {
+            title = await JS.InvokeAsync<string>("prompt", "Board title:") ?? "";
+            title = title.Trim();
+        }
+        if (string.IsNullOrEmpty(title)) return;
+
+        var board = await Session.Kanban.CreateBoardAsync(title, Session.CurrentUser.Id);
+        await _module.InvokeVoidAsync("replaceSelection", _editorId, $"[{title}](kanban:{board.Id})");
     }
 
     private async Task WrapSelectionAsync(string before, string after)

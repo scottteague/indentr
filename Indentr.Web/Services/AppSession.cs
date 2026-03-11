@@ -16,6 +16,7 @@ public sealed class AppSession : IAsyncDisposable
     public SessionState           State          { get; private set; } = SessionState.Uninitialized;
     public string?                ErrorMessage   { get; private set; }
     public INoteRepository?       Notes          { get; private set; }
+    public IKanbanRepository?     Kanban         { get; private set; }
     public IUserRepository?       Users          { get; private set; }
     public IScratchpadRepository? Scratchpads    { get; private set; }
     public IAttachmentStore?      Attachments    { get; private set; }
@@ -41,6 +42,7 @@ public sealed class AppSession : IAsyncDisposable
             await new DatabaseMigrator(cs).MigrateAsync(schemaName);
 
             Notes       = new NoteRepository(cs);
+            Kanban      = new KanbanRepository(cs);
             Users       = new UserRepository(cs);
             Scratchpads = new ScratchpadRepository(cs);
             Attachments = new PostgresAttachmentStore(cs);

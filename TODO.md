@@ -24,9 +24,9 @@ Features present in the desktop UI that are missing or incomplete in the web pro
 
 - [ ] **Kanban board page** — a `/board/{id}` route with a full board view: horizontally scrollable column list, card list per column, editable column and card titles. The desktop `KanbanWindow` is the reference.
 
-- [ ] **Kanban board creation** — a "+ Board" action in the note editor that creates a board and inserts a `kanban:UUID` link, matching `OnNewBoardClick`.
+- [x] **Kanban board creation** — a "+ Board" action in the note editor that creates a board and inserts a `kanban:UUID` link, matching `OnNewBoardClick`.
 
-- [ ] **Clicking kanban links** — `OnLinkClicked` in `NoteEditor.razor` currently ignores `kanban:` targets. It should navigate to `/board/{id}`.
+- [x] **Clicking kanban links** — `OnLinkClicked` in `NoteEditor.razor` currently ignores `kanban:` targets. It should navigate to `/board/{id}`.
 
 - [ ] **Card actions** — rename, delete, link to an existing note, create and link a new note (right-click context menu equivalents on desktop).
 
