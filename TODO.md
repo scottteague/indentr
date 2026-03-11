@@ -8,13 +8,13 @@ Features present in the desktop UI that are missing or incomplete in the web pro
 
 - [x] **Editable title** — the title is currently a read-only `<h1>`. Add an editable field and save on blur/enter, matching the desktop `TitleBox` behaviour including propagating link-title updates to other notes.
 
-- [ ] **Formatting toolbar** — Bold, Red, Italic, Underline buttons that wrap the CodeMirror selection in the appropriate Markdown syntax. The desktop `NoteEditorControl` has these as simple wrap-selection operations.
+- [x] **Formatting toolbar** — Bold, Red, Italic, Underline buttons that wrap the CodeMirror selection in the appropriate Markdown syntax. The desktop `NoteEditorControl` has these as simple wrap-selection operations.
 
 - [ ] **Link insertion dialog** — a UI to insert `[text](note:UUID)` or `[text](kanban:UUID)` links without knowing the ID. On desktop this is the `LinkTargetDialog` with a note-picker. Could be a search-as-you-type modal.
 
 - [ ] **New child note** — a "+ Note" action that creates a child note from the current selection and inserts an in-app link at the cursor, matching `OnNewChildNoteClick` on the desktop.
 
-- [ ] **Privacy toggle** — a Public/Private checkbox per note (hidden for root), saved on the next save. The web currently ignores `is_private` except to block access.
+- [x] **Privacy toggle** — a Public/Private checkbox per note (hidden for root), saved on the next save. The web currently ignores `is_private` except to block access.
 
 - [x] **Note deletion** — a way to soft-delete the current note from the note editor (e.g. a "Move to Trash" menu item or button). The desktop has this in the Notes Form `Note` menu.
 

@@ -31,11 +31,25 @@
                 }
                 @if (!_note.IsRoot)
                 {
+                    <label class="privacy-toggle" title="When checked, only you can see this note">
+                        <input type="checkbox"
+                               checked="@_note.IsPrivate"
+                               disabled="@(_note.CreatedBy != Session.CurrentUser!.Id)"
+                               @onchange="OnPrivacyChanged" />
+                        Private
+                    </label>
                     <button class="btn-trash" @onclick="MoveToTrashAsync"
                             disabled="@(_saving || _deleting)">Move to Trash</button>
                 }
                 <button class="btn-save" @onclick="SaveAsync" disabled="@(_saving || _deleting)">Save</button>
             </div>
+        </div>
+
+        <div class="format-toolbar">
+            <button class="fmt-btn fmt-bold"      title="Bold (**text**)"      disabled="@(!_editorInitialized)" @onclick='() => WrapSelectionAsync("**", "**")'>B</button>
+            <button class="fmt-btn fmt-red"       title="Red (__text__)"       disabled="@(!_editorInitialized)" @onclick='() => WrapSelectionAsync("__", "__")'>R</button>
+            <button class="fmt-btn fmt-italic"    title="Italic (*text*)"      disabled="@(!_editorInitialized)" @onclick='() => WrapSelectionAsync("*", "*")'>I</button>
+            <button class="fmt-btn fmt-underline" title="Underline (_text_)"   disabled="@(!_editorInitialized)" @onclick='() => WrapSelectionAsync("_", "_")'>U</button>
         </div>
 
         @if (_attachments.Count > 0)
@@ -152,6 +166,19 @@ else
             _ = JS.InvokeVoidAsync("open", $"/note/{id}", "_blank");
         else if (!target.StartsWith("kanban:"))
             _ = JS.InvokeVoidAsync("open", target, "_blank");
+    }
+
+    private async Task WrapSelectionAsync(string before, string after)
+    {
+        if (_module is null) return;
+        await _module.InvokeVoidAsync("wrapSelection", _editorId, before, after);
+    }
+
+    private async Task OnPrivacyChanged(ChangeEventArgs e)
+    {
+        if (_note is null) return;
+        _note.IsPrivate = (bool?)e.Value ?? false;
+        await SaveAsync();
     }
 
     private async Task MoveToTrashAsync()

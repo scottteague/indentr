@@ -1,4 +1,4 @@
-import { EditorState } from "https://esm.sh/@codemirror/state@6.4.1";
+import { EditorState, EditorSelection } from "https://esm.sh/@codemirror/state@6.4.1";
 import {
     EditorView, ViewPlugin, Decoration, WidgetType, keymap,
     drawSelection, highlightActiveLine
@@ -290,6 +290,22 @@ export function setContent(elementId, content) {
     view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: content }
     });
+}
+
+export function wrapSelection(elementId, before, after) {
+    const view = editors.get(elementId);
+    if (!view) return;
+    view.dispatch(view.state.changeByRange(range => {
+        const selected = view.state.doc.sliceString(range.from, range.to);
+        return {
+            changes: { from: range.from, to: range.to, insert: before + selected + after },
+            range: EditorSelection.range(
+                range.from + before.length,
+                range.from + before.length + selected.length
+            )
+        };
+    }));
+    view.focus();
 }
 
 export function destroy(elementId) {
