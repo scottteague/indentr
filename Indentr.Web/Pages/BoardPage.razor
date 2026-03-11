@@ -60,6 +60,7 @@ else
                             var cardI    = ki;
                             var selected = _selColIdx == colI && _selCardIdx == cardI;
                             <div class="board-card @(selected ? "selected" : "")"
+                                 id="card-@card.Id.ToString("N")"
                                  @key="card.Id"
                                  @onclick="() => { _selColIdx = colI; _selCardIdx = cardI; }">
                                 @if (_editingCardId == card.Id)
@@ -134,6 +135,9 @@ else
     private ElementReference _cardInputRef;
     private ElementReference _newColInputRef;
 
+    // Deferred scroll
+    private string? _pendingScrollCardId;
+
     // Deferred focus flags
     private bool _focusTitle;
     private bool _focusColInput;
@@ -158,6 +162,12 @@ else
         {
             _boardModule = await JS.InvokeAsync<IJSObjectReference>("import", "/js/board.js");
             await _boardModule.InvokeVoidAsync("init", _boardId);
+        }
+        if (_pendingScrollCardId is not null && _boardModule is not null)
+        {
+            var id = _pendingScrollCardId;
+            _pendingScrollCardId = null;
+            await _boardModule.InvokeVoidAsync("scrollCardIntoView", id);
         }
         if (_focusTitle)    { _focusTitle    = false; await _titleInputRef.FocusAsync(); }
         if (_focusColInput) { _focusColInput = false; await _colInputRef.FocusAsync();   }
@@ -396,7 +406,13 @@ else
             acted = false;
         }
 
-        if (acted) StateHasChanged();
+        if (acted)
+        {
+            if (_selColIdx >= 0 && _selColIdx < _columns.Count &&
+                _selCardIdx >= 0 && _selCardIdx < _columns[_selColIdx].Cards.Count)
+                _pendingScrollCardId = $"card-{_columns[_selColIdx].Cards[_selCardIdx].Id:N}";
+            StateHasChanged();
+        }
     }
 
     public async ValueTask DisposeAsync()

@@ -15,6 +15,10 @@ export function init(elementId) {
     boards.set(elementId, handler);
 }
 
+export function scrollCardIntoView(cardId) {
+    document.getElementById(cardId)?.scrollIntoView({ block: 'nearest' });
+}
+
 export function cleanup(elementId) {
     const el = document.getElementById(elementId);
     const handler = boards.get(elementId);
