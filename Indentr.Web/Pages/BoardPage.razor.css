@@ -133,7 +133,7 @@
     padding: 6px 8px;
     cursor: pointer;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 6px;
     min-height: 32px;
     transition: border-color 0.1s;
@@ -148,6 +148,7 @@
 
 .card-title {
     flex: 1;
+    min-width: 0;
     font-size: 13px;
     color: var(--fg, #d4d4d4);
     line-height: 1.4;
