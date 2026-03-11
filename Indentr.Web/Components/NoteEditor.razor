@@ -320,9 +320,12 @@ else
         var fresh = await Session.Notes.GetByIdAsync(NoteId);
         if (fresh is null || _module is null) return;
 
+        var prevHash = _note?.ContentHash;
         _note = fresh;
         if (!_titleDirty) _currentTitle = fresh.Title;
-        await _module.InvokeVoidAsync("setContent", _editorId, _note.Content);
+        // Only push content to the editor if it changed externally — skipping our own saves.
+        if (fresh.ContentHash != prevHash)
+            await _module.InvokeVoidAsync("setContent", _editorId, _note.Content);
     }
 
     public async ValueTask DisposeAsync()
