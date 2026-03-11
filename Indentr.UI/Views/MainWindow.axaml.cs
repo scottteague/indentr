@@ -126,6 +126,12 @@ public partial class MainWindow : Window
     private void OnTrashClicked(object? sender, RoutedEventArgs e) =>
         new TrashWindow().Show();
 
+    private async void OnExportSingleNoteClicked(object? sender, RoutedEventArgs e) =>
+        await RootEditor.ExportAsync();
+
+    private async void OnExportSubtreeClicked(object? sender, RoutedEventArgs e) =>
+        await RootEditor.ExportSubtreeAsync();
+
     private async void OnImportClicked(object? sender, RoutedEventArgs e)
     {
         var folders = await StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions

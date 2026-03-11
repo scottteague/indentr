@@ -17,6 +17,10 @@
                 <MenuItem Header="_Manage Notes…"    Click="OnManageClicked" />
                 <MenuItem Header="_Trash…"           Click="OnTrashClicked" />
                 <MenuItem Header="_Import…"           Click="OnImportClicked" />
+                <MenuItem Header="_Export">
+                    <MenuItem Header="Export _Single Note" Click="OnExportSingleNoteClicked" />
+                    <MenuItem Header="Export _Subtree"     Click="OnExportSubtreeClicked" />
+                </MenuItem>
                 <MenuItem Header="Backup _Database…" Click="OnBackupClicked" />
                 <Separator />
                 <MenuItem Header="Switch _Profile…"  Click="OnManageProfilesClicked" />

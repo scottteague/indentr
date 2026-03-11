@@ -67,7 +67,6 @@ public partial class NoteEditorControl : UserControl
         Editor.IsReadOnly       = false;
         AttachmentBar.IsVisible = true;
         NewBoardButton.IsEnabled = true;
-        ExportSubtreeButton.IsEnabled = true;
         _ = LoadAttachmentsAsync(note.Id);
 
         // Privacy checkbox: visible for regular notes editable by their creator; hidden for root.
@@ -88,7 +87,6 @@ public partial class NoteEditorControl : UserControl
         PrivacyRow.IsVisible    = false;
         AttachmentBar.IsVisible  = false;
         NewBoardButton.IsEnabled = false;
-        ExportSubtreeButton.IsEnabled = false;
         Editor.Text              = scratchpad.Content;
         Editor.IsReadOnly       = false;
         UpdateNewChildNoteButton();
@@ -309,7 +307,7 @@ public partial class NoteEditorControl : UserControl
 
     private async void OnSaveClick(object? sender, RoutedEventArgs e) => await DoSave();
 
-    private async void OnExportClick(object? sender, RoutedEventArgs e)
+    public async Task ExportAsync()
     {
         var window = TopLevel.GetTopLevel(this) as Window;
         if (window is null) return;
@@ -332,7 +330,7 @@ public partial class NoteEditorControl : UserControl
         await writer.WriteAsync(content);
     }
 
-    private async void OnExportSubtreeClick(object? sender, RoutedEventArgs e)
+    public async Task ExportSubtreeAsync()
     {
         if (_noteId is null) return;
         var window = TopLevel.GetTopLevel(this) as Window;
