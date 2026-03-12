@@ -1,0 +1,166 @@
+@page "/manage"
+@inject AppSession Session
+@inject NoteChangeNotifier Notifier
+@inject IJSRuntime JS
+
+<PageTitle>Manage — Indentr</PageTitle>
+
+<div class="manage-page">
+    <div class="manage-header">
+        <h1 class="manage-heading">Manage — Orphan Notes</h1>
+    </div>
+
+    @if (_orphans.Count == 0)
+    {
+        <p class="manage-empty">No orphan notes.</p>
+    }
+    else
+    {
+        <ul class="manage-list">
+            @foreach (var note in _orphans)
+            {
+                <li class="manage-item">
+                    <span class="manage-item-title">@note.Title</span>
+                    <div class="manage-item-actions">
+                        <a href="/note/@note.Id" target="_blank" class="btn-open">Open ↗</a>
+                        <button class="btn-adopt" @onclick="() => OpenAdoptModal(note)" disabled="@_busy">Adopt…</button>
+                    </div>
+                </li>
+            }
+        </ul>
+    }
+</div>
+
+@if (_adoptTarget is not null)
+{
+    <div class="modal-overlay" @onclick="CloseAdoptModal">
+        <div class="link-modal" @onclick:stopPropagation>
+            <div class="link-modal-title">Adopt "@_adoptTarget.Title" — choose parent</div>
+            <input class="link-search-input"
+                   placeholder="Search notes…"
+                   value="@_adoptSearch"
+                   @oninput="OnAdoptSearchInput"
+                   @onkeydown="OnAdoptSearchKeyDown"
+                   @ref="_adoptSearchRef" />
+            <div class="link-results">
+                @if (!_adoptResults.Any())
+                {
+                    <div class="link-empty">@(string.IsNullOrWhiteSpace(_adoptSearch) ? "Type to search notes…" : "No results")</div>
+                }
+                else
+                {
+                    @foreach (var n in _adoptResults)
+                    {
+                        <button class="link-result" @onclick="() => AdoptAsync(n)">@n.Title</button>
+                    }
+                }
+            </div>
+            <div class="link-modal-footer">
+                <button class="link-cancel-btn" @onclick="CloseAdoptModal">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Note> _orphans = [];
+    private bool _busy;
+
+    // Adoption modal state
+    private Note? _adoptTarget;
+    private string _adoptSearch = "";
+    private IEnumerable<Note> _adoptResults = [];
+    private CancellationTokenSource? _adoptSearchCts;
+    private bool _focusAdoptSearch;
+    private ElementReference _adoptSearchRef;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (Session.Notes is null || Session.CurrentUser is null) return;
+        var result = await Session.Notes.GetOrphansAsync(Session.CurrentUser.Id);
+        _orphans = result.ToList();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusAdoptSearch)
+        {
+            _focusAdoptSearch = false;
+            try { await _adoptSearchRef.FocusAsync(); } catch { }
+        }
+    }
+
+    private void OpenAdoptModal(Note orphan)
+    {
+        _adoptTarget   = orphan;
+        _adoptSearch   = "";
+        _adoptResults  = [];
+        _focusAdoptSearch = true;
+    }
+
+    private void CloseAdoptModal()
+    {
+        _adoptTarget = null;
+        _adoptSearchCts?.Cancel();
+        _adoptSearchCts?.Dispose();
+        _adoptSearchCts = null;
+    }
+
+    private async Task OnAdoptSearchInput(ChangeEventArgs e)
+    {
+        _adoptSearch = e.Value?.ToString() ?? "";
+        _adoptSearchCts?.Cancel();
+        _adoptSearchCts?.Dispose();
+        _adoptSearchCts = null;
+
+        if (string.IsNullOrWhiteSpace(_adoptSearch))
+        {
+            _adoptResults = [];
+            return;
+        }
+
+        _adoptSearchCts = new CancellationTokenSource();
+        var token = _adoptSearchCts.Token;
+        try
+        {
+            await Task.Delay(200, token);
+            var results = await Session.Notes!.SearchAsync(_adoptSearch, Session.CurrentUser!.Id);
+            _adoptResults = results.Where(n => n.Id != _adoptTarget!.Id);
+            StateHasChanged();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private void OnAdoptSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") CloseAdoptModal();
+    }
+
+    private async Task AdoptAsync(Note parent)
+    {
+        if (_adoptTarget is null || Session.Notes is null) return;
+        var orphan = _adoptTarget;
+        CloseAdoptModal();
+
+        _busy = true;
+        StateHasChanged();
+        try
+        {
+            var fresh = await Session.Notes.GetByIdAsync(parent.Id);
+            if (fresh is null) return;
+
+            var separator = fresh.Content.Length > 0 && !fresh.Content.EndsWith('\n') ? "\n" : "";
+            fresh.Content += $"{separator}[{orphan.Title}](note:{orphan.Id})";
+
+            await Session.Notes.SaveAsync(fresh, fresh.ContentHash);
+            Notifier.NotifyChanged(parent.Id);
+            await LoadAsync();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

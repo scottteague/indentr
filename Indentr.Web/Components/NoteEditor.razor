@@ -61,19 +61,21 @@
             <button class="fmt-btn fmt-wide" title="Export note as a Markdown file" disabled="@(!_editorInitialized)" @onclick="OnExportAsync">Export</button>
         </div>
 
-        @if (_attachments.Count > 0)
-        {
-            <div class="attachments">
-                <strong>Attachments:</strong>
-                @foreach (var att in _attachments)
-                {
-                    <span class="attachment-item">
-                        <a href="/api/attachments/@att.Id" target="_blank" class="attachment-link">@att.Filename</a>
-                        <button class="att-del-btn" @onclick="() => DeleteAttachmentAsync(att)" title="Delete attachment">×</button>
-                    </span>
-                }
-            </div>
-        }
+        <div class="attachments">
+            <strong>Attachments:</strong>
+            @foreach (var att in _attachments)
+            {
+                <span class="attachment-item">
+                    <a href="/api/attachments/@att.Id" target="_blank" class="attachment-link">@att.Filename</a>
+                    <button class="att-del-btn" @onclick="() => DeleteAttachmentAsync(att)" title="Delete attachment">×</button>
+                </span>
+            }
+            <label class="att-upload-label" title="Attach files">
+                <InputFile OnChange="OnFilesSelectedAsync" multiple class="att-upload-input" />
+                📎 Attach
+            </label>
+            @if (_uploading) { <span class="status-text">Uploading…</span> }
+        </div>
 
         <div id="@_editorId" class="cm-host"></div>
 
@@ -132,6 +134,7 @@ else
     private string  _currentTitle   = "";
     private string  _editorId = "";
     private IReadOnlyList<AttachmentMeta> _attachments = [];
+    private bool _uploading;
     private CancellationTokenSource? _saveCts;
 
     private IJSObjectReference?         _module;
@@ -350,6 +353,28 @@ else
         finally
         {
             _saving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnFilesSelectedAsync(InputFileChangeEventArgs e)
+    {
+        if (Session.Attachments is null) return;
+        _uploading = true;
+        StateHasChanged();
+        try
+        {
+            foreach (var file in e.GetMultipleFiles(10))
+            {
+                await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+                var mime = string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType;
+                var meta = await Session.Attachments.StoreAsync(NoteId, file.Name, mime, stream);
+                _attachments = _attachments.Append(meta).ToList();
+            }
+        }
+        finally
+        {
+            _uploading = false;
             StateHasChanged();
         }
     }
