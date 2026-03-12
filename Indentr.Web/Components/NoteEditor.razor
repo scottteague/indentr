@@ -50,11 +50,15 @@
             <button class="fmt-btn fmt-red"       title="Red (__text__)"       disabled="@(!_editorInitialized)" @onclick='() => WrapSelectionAsync("__", "__")'>R</button>
             <button class="fmt-btn fmt-italic"    title="Italic (*text*)"      disabled="@(!_editorInitialized)" @onclick='() => WrapSelectionAsync("*", "*")'>I</button>
             <button class="fmt-btn fmt-underline" title="Underline (_text_)"   disabled="@(!_editorInitialized)" @onclick='() => WrapSelectionAsync("_", "_")'>U</button>
+            <span class="fmt-sep"></span>
+            <button class="fmt-btn fmt-wide" title="Insert a link to an existing note" disabled="@(!_editorInitialized)" @onclick="OpenLinkModal">Link</button>
+            <button class="fmt-btn fmt-wide" title="Create a new child note and insert a link" disabled="@(!_editorInitialized)" @onclick="OnNewChildNoteAsync">+ Note</button>
             @if (!_note.IsRoot)
             {
-                <span class="fmt-sep"></span>
                 <button class="fmt-btn fmt-wide" title="Create a new Kanban board and insert a link" disabled="@(!_editorInitialized)" @onclick="OnNewBoardAsync">+ Board</button>
             }
+            <span class="fmt-sep"></span>
+            <button class="fmt-btn fmt-wide" title="Export note as a Markdown file" disabled="@(!_editorInitialized)" @onclick="OnExportAsync">Export</button>
         </div>
 
         @if (_attachments.Count > 0)
@@ -63,14 +67,46 @@
                 <strong>Attachments:</strong>
                 @foreach (var att in _attachments)
                 {
-                    <a href="/api/attachments/@att.Id" target="_blank" class="attachment-link">
-                        @att.Filename
-                    </a>
+                    <span class="attachment-item">
+                        <a href="/api/attachments/@att.Id" target="_blank" class="attachment-link">@att.Filename</a>
+                        <button class="att-del-btn" @onclick="() => DeleteAttachmentAsync(att)" title="Delete attachment">×</button>
+                    </span>
                 }
             </div>
         }
 
         <div id="@_editorId" class="cm-host"></div>
+
+        @if (_linkModalOpen)
+        {
+            <div class="modal-overlay" @onclick="CloseLinkModal">
+                <div class="link-modal" @onclick:stopPropagation>
+                    <div class="link-modal-title">Insert Note Link</div>
+                    <input class="link-search-input"
+                           placeholder="Search notes…"
+                           value="@_linkSearch"
+                           @oninput="OnLinkSearchInput"
+                           @onkeydown="OnLinkSearchKeyDown"
+                           @ref="_linkSearchRef" />
+                    <div class="link-results">
+                        @if (!_linkResults.Any())
+                        {
+                            <div class="link-empty">@(string.IsNullOrWhiteSpace(_linkSearch) ? "Type to search notes…" : "No results")</div>
+                        }
+                        else
+                        {
+                            @foreach (var n in _linkResults)
+                            {
+                                <button class="link-result" @onclick="() => InsertLinkAsync(n)">@n.Title</button>
+                            }
+                        }
+                    </div>
+                    <div class="link-modal-footer">
+                        <button class="link-cancel-btn" @onclick="CloseLinkModal">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        }
     </div>
 }
 else if (_notFound)
@@ -102,6 +138,14 @@ else
     private DotNetObjectReference<NoteEditor>? _dotNetRef;
     private bool _editorInitialized;
 
+    // Link insertion modal
+    private bool                 _linkModalOpen;
+    private string               _linkSearch    = "";
+    private IEnumerable<Note>    _linkResults   = [];
+    private CancellationTokenSource? _linkSearchCts;
+    private bool                 _focusLinkSearch;
+    private ElementReference     _linkSearchRef;
+
     protected override async Task OnInitializedAsync()
     {
         _editorId = $"cm-{NoteId:N}";
@@ -131,6 +175,12 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_focusLinkSearch)
+        {
+            _focusLinkSearch = false;
+            try { await _linkSearchRef.FocusAsync(); } catch { }
+        }
+
         if (_editorInitialized || _note is null) return;
         _editorInitialized = true; // guard before first await to prevent double-init
 
@@ -304,6 +354,101 @@ else
         }
     }
 
+    private async Task DeleteAttachmentAsync(AttachmentMeta att)
+    {
+        if (Session.Attachments is null) return;
+        var ok = await JS.InvokeAsync<bool>("confirm", $"Delete attachment \"{att.Filename}\"?");
+        if (!ok) return;
+        await Session.Attachments.DeleteAsync(att.Id);
+        _attachments = _attachments.Where(a => a.Id != att.Id).ToList();
+        StateHasChanged();
+    }
+
+    private async Task OnExportAsync()
+    {
+        if (_module is null || _note is null) return;
+        var content = await _module.InvokeAsync<string>("getContent", _editorId);
+        var exported = System.Text.RegularExpressions.Regex.Replace(
+            content,
+            @"\[([^\]]*)\]\((note|kanban):[^\)]*\)",
+            "$1");
+        var safeName = string.Concat(_note.Title.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
+        if (string.IsNullOrWhiteSpace(safeName)) safeName = "note";
+        await _module.InvokeVoidAsync("downloadFile", safeName + ".md", exported);
+    }
+
+    private async Task OnNewChildNoteAsync()
+    {
+        if (_module is null || Session.Notes is null || Session.CurrentUser is null) return;
+        var title = await _module.InvokeAsync<string>("getSelection", _editorId);
+        title = title.Trim();
+        if (string.IsNullOrEmpty(title))
+        {
+            title = await JS.InvokeAsync<string>("prompt", "New note title:") ?? "";
+            title = title.Trim();
+        }
+        if (string.IsNullOrEmpty(title)) return;
+        var note = await Session.Notes.CreateAsync(new Note
+        {
+            Title     = title,
+            OwnerId   = Session.CurrentUser.Id,
+            CreatedBy = Session.CurrentUser.Id,
+        });
+        await _module.InvokeVoidAsync("replaceSelection", _editorId, $"[{title}](note:{note.Id})");
+    }
+
+    private void OpenLinkModal()
+    {
+        _linkSearch    = "";
+        _linkResults   = [];
+        _linkModalOpen = true;
+        _focusLinkSearch = true;
+    }
+
+    private void CloseLinkModal()
+    {
+        _linkModalOpen = false;
+        _linkSearchCts?.Cancel();
+        _linkSearchCts?.Dispose();
+        _linkSearchCts = null;
+    }
+
+    private async Task OnLinkSearchInput(ChangeEventArgs e)
+    {
+        _linkSearch = e.Value?.ToString() ?? "";
+        _linkSearchCts?.Cancel();
+        _linkSearchCts?.Dispose();
+        _linkSearchCts = null;
+
+        if (string.IsNullOrWhiteSpace(_linkSearch))
+        {
+            _linkResults = [];
+            return;
+        }
+
+        _linkSearchCts = new CancellationTokenSource();
+        var token = _linkSearchCts.Token;
+        try
+        {
+            await Task.Delay(200, token);
+            _linkResults = await Session.Notes!.SearchAsync(_linkSearch, Session.CurrentUser!.Id);
+            StateHasChanged();
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private void OnLinkSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") CloseLinkModal();
+    }
+
+    private async Task InsertLinkAsync(Note note)
+    {
+        if (_module is null) return;
+        CloseLinkModal();
+        await _module.InvokeVoidAsync("replaceSelection", _editorId, $"[{note.Title}](note:{note.Id})");
+    }
+
     private void HandleChange(Guid id)
     {
         if (id != NoteId) return;
@@ -331,6 +476,9 @@ else
     public async ValueTask DisposeAsync()
     {
         Notifier.NoteChanged -= HandleChange;
+
+        _linkSearchCts?.Cancel();
+        _linkSearchCts?.Dispose();
 
         // Cancel pending debounced save, then do a final quiet save if there are
         // unsaved edits. _currentContent is already current server-side (kept up to

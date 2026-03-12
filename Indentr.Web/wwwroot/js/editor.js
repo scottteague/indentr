@@ -326,6 +326,16 @@ export function wrapSelection(elementId, before, after) {
     view.focus();
 }
 
+export function downloadFile(filename, content) {
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
 export function destroy(elementId) {
     const view = editors.get(elementId);
     if (view) {
