@@ -1,0 +1,49 @@
+@inject AppSession Session
+
+<div class="tree-node" style="padding-left: @(Depth * 16)px">
+    <div class="tree-row">
+        @if (Node.HasChildren || Node.IsLoaded)
+        {
+            <button class="tree-toggle" @onclick="ToggleAsync">
+                @(Node.IsExpanded ? "▾" : "▸")
+            </button>
+        }
+        else
+        {
+            <span class="tree-spacer"></span>
+        }
+        <button class="picker-label @(SelectedId == Node.Id ? "picker-selected" : "") @(Node.IsPrivate ? "picker-private" : "")"
+                @onclick="() => OnSelected.InvokeAsync(Node)">@Node.Title</button>
+    </div>
+
+    @if (Node.IsExpanded && Node.IsLoaded)
+    {
+        @foreach (var child in Node.Children)
+        {
+            <NotePickerTreeNode Node="child" Depth="@(Depth + 1)"
+                SelectedId="SelectedId"
+                OnSelected="OnSelected" />
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public NoteTreeNode Node  { get; set; } = null!;
+    [Parameter]                 public int          Depth { get; set; }
+    [Parameter]                 public Guid?        SelectedId { get; set; }
+    [Parameter]                 public EventCallback<NoteTreeNode> OnSelected { get; set; }
+
+    private async Task ToggleAsync()
+    {
+        if (!Node.IsLoaded) await LoadChildrenAsync();
+        Node.IsExpanded = !Node.IsExpanded;
+    }
+
+    private async Task LoadChildrenAsync()
+    {
+        if (Session.Notes is null || Session.CurrentUser is null) return;
+        var children = await Session.Notes.GetChildrenAsync(Node.Id, Session.CurrentUser.Id);
+        Node.Children = children.ToList();
+        Node.IsLoaded = true;
+    }
+}

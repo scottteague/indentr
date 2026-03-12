@@ -1,0 +1,279 @@
+@page "/profiles"
+@layout ProfilesLayout
+@inject AppSession Session
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Profiles — Indentr</PageTitle>
+
+<div class="profiles-page">
+    <div class="profiles-header">
+        <h1 class="profiles-heading">Profiles</h1>
+        @if (Session.State == SessionState.Ready)
+        {
+            <a href="/" class="profiles-back">← Back to notes</a>
+        }
+    </div>
+
+    @if (_connectError is not null)
+    {
+        <p class="profiles-conn-error">@_connectError</p>
+    }
+    else if (Session.State == SessionState.Error)
+    {
+        <p class="profiles-conn-error">Connection error: @Session.ErrorMessage</p>
+    }
+
+    @if (_profiles.Count == 0)
+    {
+        <p class="profiles-empty">No profiles yet. Add one below to get started.</p>
+    }
+    else
+    {
+        <ul class="profiles-list">
+            @foreach (var p in _profiles)
+            {
+                bool isActive = Session.State == SessionState.Ready &&
+                                Session.CurrentProfile?.Name == p.Name;
+
+                @if (_editingName == p.Name)
+                {
+                    <li class="profiles-item profiles-item-editing">
+                        @ProfileForm(isEdit: true)
+                    </li>
+                }
+                else
+                {
+                    <li class="profiles-item @(isActive ? "profiles-item-active" : "")">
+                        <div class="profiles-item-info">
+                            <span class="profiles-item-name">
+                                @p.Name
+                                @if (isActive) { <span class="profiles-active-badge">active</span> }
+                            </span>
+                            <span class="profiles-item-conn">
+                                @p.Username — @p.Database.Host:@p.Database.Port/@p.Database.Name
+                            </span>
+                        </div>
+                        <div class="profiles-item-actions">
+                            @if (!isActive)
+                            {
+                                <button class="btn-connect" @onclick="() => ConnectAsync(p)" disabled="@_busy">Connect</button>
+                            }
+                            <button class="btn-edit-profile" @onclick="() => StartEdit(p)" disabled="@_busy">Edit</button>
+                            <button class="btn-delete-profile" @onclick="() => DeleteAsync(p)" disabled="@_busy">Delete</button>
+                        </div>
+                    </li>
+                }
+            }
+        </ul>
+    }
+
+    @if (_adding)
+    {
+        <div class="profile-form-section">
+            <h2 class="profile-form-heading">Add Profile</h2>
+            @ProfileForm(isEdit: false)
+        </div>
+    }
+    else if (_editingName is null)
+    {
+        <button class="btn-add-profile" @onclick="StartAdd" disabled="@_busy">+ Add Profile</button>
+    }
+</div>
+
+@code {
+    private List<DatabaseProfile> _profiles = [];
+    private string? _editingName;
+    private bool    _adding;
+    private bool    _busy;
+    private string? _connectError;
+
+    // Shared form fields
+    private string _fName     = "";
+    private string _fUsername = "";
+    private string _fHost     = "localhost";
+    private int    _fPort     = 5432;
+    private string _fDbName   = "indentr";
+    private string _fPassword = "";
+    private string? _fError;
+
+    protected override void OnInitialized()
+    {
+        _profiles = ConfigManager.Load().Profiles;
+    }
+
+    private void StartAdd()
+    {
+        _editingName = null;
+        _adding      = true;
+        ClearForm();
+    }
+
+    private void StartEdit(DatabaseProfile p)
+    {
+        _adding      = false;
+        _editingName = p.Name;
+        _fName       = p.Name;
+        _fUsername   = p.Username;
+        _fHost       = p.Database.Host;
+        _fPort       = p.Database.Port;
+        _fDbName     = p.Database.Name;
+        _fPassword   = p.Database.Password;
+        _fError      = null;
+    }
+
+    private void CancelForm()
+    {
+        _adding      = false;
+        _editingName = null;
+        ClearForm();
+    }
+
+    private void ClearForm()
+    {
+        _fName = ""; _fUsername = ""; _fHost = "localhost";
+        _fPort = 5432; _fDbName = "indentr"; _fPassword = "";
+        _fError = null;
+    }
+
+    private void SaveAdd()
+    {
+        var name = _fName.Trim();
+        if (string.IsNullOrWhiteSpace(name))     { _fError = "Name is required.";     return; }
+        if (string.IsNullOrWhiteSpace(_fUsername)) { _fError = "Username is required."; return; }
+
+        var config = ConfigManager.Load();
+        if (config.Profiles.Any(p => p.Name == name))
+        {
+            _fError = "A profile with that name already exists.";
+            return;
+        }
+
+        config.Profiles.Add(BuildProfile(name));
+        ConfigManager.Save(config);
+        _profiles = config.Profiles;
+        CancelForm();
+    }
+
+    private void SaveEdit()
+    {
+        var newName = _fName.Trim();
+        if (string.IsNullOrWhiteSpace(newName))    { _fError = "Name is required.";     return; }
+        if (string.IsNullOrWhiteSpace(_fUsername)) { _fError = "Username is required."; return; }
+
+        var config   = ConfigManager.Load();
+        var existing = config.Profiles.FirstOrDefault(p => p.Name == _editingName);
+        if (existing is null) { CancelForm(); return; }
+
+        if (newName != existing.Name && config.Profiles.Any(p => p.Name == newName))
+        {
+            _fError = "A profile with that name already exists.";
+            return;
+        }
+
+        if (config.LastProfile == existing.Name) config.LastProfile = newName;
+
+        existing.Name             = newName;
+        existing.Username         = _fUsername.Trim();
+        existing.Database.Host    = _fHost.Trim();
+        existing.Database.Port    = _fPort;
+        existing.Database.Name    = _fDbName.Trim();
+        existing.Database.Username = _fUsername.Trim();
+        existing.Database.Password = _fPassword;
+
+        ConfigManager.Save(config);
+        _profiles = config.Profiles;
+        CancelForm();
+    }
+
+    private async Task DeleteAsync(DatabaseProfile p)
+    {
+        var ok = await JS.InvokeAsync<bool>("confirm", $"Delete profile \"{p.Name}\"?");
+        if (!ok) return;
+
+        var config = ConfigManager.Load();
+        config.Profiles.RemoveAll(pr => pr.Name == p.Name);
+        if (config.LastProfile == p.Name) config.LastProfile = "";
+        ConfigManager.Save(config);
+        _profiles = config.Profiles;
+    }
+
+    private async Task ConnectAsync(DatabaseProfile p)
+    {
+        _busy = true;
+        _connectError = null;
+        StateHasChanged();
+        try
+        {
+            var config = ConfigManager.Load();
+            config.LastProfile = p.Name;
+            ConfigManager.Save(config);
+
+            await Session.InitializeAsync(p);
+            if (Session.State == SessionState.Ready)
+                Nav.NavigateTo("/", forceLoad: true);
+            else
+                _connectError = Session.ErrorMessage;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private DatabaseProfile BuildProfile(string name) => new()
+    {
+        Name     = name,
+        Username = _fUsername.Trim(),
+        Database = new DatabaseConfig
+        {
+            Host     = _fHost.Trim(),
+            Port     = _fPort,
+            Name     = _fDbName.Trim(),
+            Username = _fUsername.Trim(),
+            Password = _fPassword,
+        }
+    };
+
+    private RenderFragment ProfileForm(bool isEdit) => __builder =>
+    {
+        <div class="profile-form">
+            <div class="profile-form-row">
+                <label class="profile-form-label">Profile name</label>
+                <input class="profile-form-input" @bind="_fName" placeholder="e.g. Home" />
+            </div>
+            <div class="profile-form-row">
+                <label class="profile-form-label">PostgreSQL username</label>
+                <input class="profile-form-input" @bind="_fUsername" placeholder="postgres" />
+            </div>
+            <div class="profile-form-row profile-form-row-multi">
+                <div class="profile-form-col">
+                    <label class="profile-form-label">Host</label>
+                    <input class="profile-form-input" @bind="_fHost" placeholder="localhost" />
+                </div>
+                <div class="profile-form-col profile-form-col-narrow">
+                    <label class="profile-form-label">Port</label>
+                    <input class="profile-form-input" type="number" @bind="_fPort" />
+                </div>
+                <div class="profile-form-col">
+                    <label class="profile-form-label">Database name</label>
+                    <input class="profile-form-input" @bind="_fDbName" placeholder="indentr" />
+                </div>
+            </div>
+            <div class="profile-form-row">
+                <label class="profile-form-label">Password</label>
+                <input class="profile-form-input" type="password" @bind="_fPassword" placeholder="(leave blank if none)" />
+            </div>
+            @if (_fError is not null)
+            {
+                <p class="profile-form-error">@_fError</p>
+            }
+            <div class="profile-form-actions">
+                <button class="btn-profile-save" @onclick="() => { if (isEdit) SaveEdit(); else SaveAdd(); }">
+                    @(isEdit ? "Save" : "Add Profile")
+                </button>
+                <button class="btn-profile-cancel" @onclick="CancelForm">Cancel</button>
+            </div>
+        </div>
+    };
+}

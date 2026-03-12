@@ -1,0 +1,10 @@
+.profiles-layout {
+    min-height: 100vh;
+    background: var(--bg, #1e1e1e);
+    color: var(--fg, #d4d4d4);
+    font-family: system-ui, sans-serif;
+    font-size: 14px;
+    display: flex;
+    justify-content: center;
+    padding: 48px 24px;
+}

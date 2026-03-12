@@ -59,6 +59,7 @@
             }
             <span class="fmt-sep"></span>
             <button class="fmt-btn fmt-wide" title="Export note as a Markdown file" disabled="@(!_editorInitialized)" @onclick="OnExportAsync">Export</button>
+            <button class="fmt-btn fmt-wide" title="Export this note and all its descendants as a .zip archive" disabled="@(!_editorInitialized)" @onclick="OnExportSubtreeAsync">Export Tree</button>
         </div>
 
         <div class="attachments">
@@ -400,6 +401,11 @@ else
         var safeName = string.Concat(_note.Title.Where(c => !Path.GetInvalidFileNameChars().Contains(c)));
         if (string.IsNullOrWhiteSpace(safeName)) safeName = "note";
         await _module.InvokeVoidAsync("downloadFile", safeName + ".md", exported);
+    }
+
+    private async Task OnExportSubtreeAsync()
+    {
+        await JS.InvokeVoidAsync("open", $"/api/export/{NoteId}", "_blank");
     }
 
     private async Task OnNewChildNoteAsync()

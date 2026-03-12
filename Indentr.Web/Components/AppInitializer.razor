@@ -14,14 +14,15 @@ else if (Session.State == SessionState.Error)
     <div class="init-message init-error">
         <h2>Database Error</h2>
         <p>@Session.ErrorMessage</p>
-        <p>Please check your config at <code>~/.config/indentr/config.json</code></p>
+        <p><a href="/profiles" class="init-link">Manage profiles →</a></p>
     </div>
 }
 else if (Session.State == SessionState.Uninitialized && _noProfiles)
 {
     <div class="init-message">
         <h2>No profiles found</h2>
-        <p>Create a profile using the Indentr desktop app first, then refresh this page.</p>
+        <p>Add a profile to connect to your PostgreSQL database.</p>
+        <p><a href="/profiles" class="init-link">Add profile →</a></p>
     </div>
 }
 else

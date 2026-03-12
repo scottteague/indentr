@@ -1,4 +1,6 @@
 @page "/manage"
+@using System.IO.Compression
+@using Indentr.Data
 @inject AppSession Session
 @inject NoteChangeNotifier Notifier
 @inject IJSRuntime JS
@@ -29,33 +31,94 @@
             }
         </ul>
     }
+
+    <div class="import-section">
+        <h2 class="import-heading">Import Subtree</h2>
+        <p class="import-desc">Upload a <code>.zip</code> file created by "Export Tree" to import notes, boards, and attachments.</p>
+        <div class="import-row">
+            <label class="import-file-label">
+                <InputFile OnChange="OnImportFileSelected" accept=".zip" class="import-file-input" />
+                @(_importFile is null ? "Choose .zip file…" : _importFile.Name)
+            </label>
+            <button class="btn-import" @onclick="ImportAsync"
+                    disabled="@(_importFile is null || _importBusy)">
+                @(_importBusy ? "Importing…" : "Import")
+            </button>
+        </div>
+        @if (_importResult is not null)
+        {
+            <p class="import-result">
+                Imported @_importResult.NotesImported note(s),
+                @_importResult.BoardsImported board(s),
+                @_importResult.AttachmentsImported attachment(s).
+            </p>
+        }
+        @if (_importError is not null)
+        {
+            <p class="import-error">@_importError</p>
+        }
+    </div>
 </div>
 
 @if (_adoptTarget is not null)
 {
     <div class="modal-overlay" @onclick="CloseAdoptModal">
-        <div class="link-modal" @onclick:stopPropagation>
+        <div class="adopt-modal" @onclick:stopPropagation>
             <div class="link-modal-title">Adopt "@_adoptTarget.Title" — choose parent</div>
-            <input class="link-search-input"
-                   placeholder="Search notes…"
-                   value="@_adoptSearch"
-                   @oninput="OnAdoptSearchInput"
-                   @onkeydown="OnAdoptSearchKeyDown"
-                   @ref="_adoptSearchRef" />
-            <div class="link-results">
-                @if (!_adoptResults.Any())
-                {
-                    <div class="link-empty">@(string.IsNullOrWhiteSpace(_adoptSearch) ? "Type to search notes…" : "No results")</div>
-                }
-                else
-                {
-                    @foreach (var n in _adoptResults)
-                    {
-                        <button class="link-result" @onclick="() => AdoptAsync(n)">@n.Title</button>
-                    }
-                }
+
+            <div class="adopt-tabs">
+                <button class="adopt-tab @(_adoptTab == "search" ? "active" : "")"
+                        @onclick='() => _adoptTab = "search"'>Search</button>
+                <button class="adopt-tab @(_adoptTab == "browse" ? "active" : "")"
+                        @onclick="SwitchToBrowseAsync">Browse Tree</button>
             </div>
+
+            @if (_adoptTab == "search")
+            {
+                <input class="link-search-input"
+                       placeholder="Search notes…"
+                       value="@_adoptSearch"
+                       @oninput="OnAdoptSearchInput"
+                       @onkeydown="OnAdoptSearchKeyDown"
+                       @ref="_adoptSearchRef" />
+                <div class="link-results">
+                    @if (!_adoptResults.Any())
+                    {
+                        <div class="link-empty">@(string.IsNullOrWhiteSpace(_adoptSearch) ? "Type to search notes…" : "No results")</div>
+                    }
+                    else
+                    {
+                        @foreach (var n in _adoptResults)
+                        {
+                            <button class="link-result @(n.Id == _adoptParentId ? "link-result-selected" : "")"
+                                    @onclick="() => SelectParent(n.Id, n.Title)">@n.Title</button>
+                        }
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="picker-tree-container">
+                    @if (_adoptTreeRoot is not null)
+                    {
+                        <NotePickerTreeNode Node="_adoptTreeRoot" Depth="0"
+                            SelectedId="@_adoptParentId"
+                            OnSelected="n => SelectParent(n.Id, n.Title)" />
+                    }
+                    else
+                    {
+                        <div class="link-empty">Loading…</div>
+                    }
+                </div>
+            }
+
             <div class="link-modal-footer">
+                @if (_adoptParentId is not null)
+                {
+                    <span class="adopt-parent-label">→ @_adoptParentTitle</span>
+                }
+                <button class="btn-adopt-confirm" @onclick="AdoptAsync"
+                        disabled="@(_adoptParentId is null)">Adopt</button>
                 <button class="link-cancel-btn" @onclick="CloseAdoptModal">Cancel</button>
             </div>
         </div>
@@ -66,13 +129,27 @@
     private List<Note> _orphans = [];
     private bool _busy;
 
+    // Import state
+    private IBrowserFile? _importFile;
+    private bool _importBusy;
+    private SubtreeImporter.ImportResult? _importResult;
+    private string? _importError;
+
     // Adoption modal state
-    private Note? _adoptTarget;
+    private Note?  _adoptTarget;
+    private string _adoptTab    = "search";
     private string _adoptSearch = "";
-    private IEnumerable<Note> _adoptResults = [];
+    private IEnumerable<Note>    _adoptResults  = [];
     private CancellationTokenSource? _adoptSearchCts;
-    private bool _focusAdoptSearch;
+    private bool             _focusAdoptSearch;
     private ElementReference _adoptSearchRef;
+
+    // Unified parent selection (both tabs)
+    private Guid?   _adoptParentId;
+    private string? _adoptParentTitle;
+
+    // Browse tree state (kept across opens so expand state persists)
+    private NoteTreeNode? _adoptTreeRoot;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
@@ -85,7 +162,7 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_focusAdoptSearch)
+        if (_focusAdoptSearch && _adoptTab == "search")
         {
             _focusAdoptSearch = false;
             try { await _adoptSearchRef.FocusAsync(); } catch { }
@@ -94,18 +171,49 @@
 
     private void OpenAdoptModal(Note orphan)
     {
-        _adoptTarget   = orphan;
-        _adoptSearch   = "";
-        _adoptResults  = [];
+        _adoptTarget      = orphan;
+        _adoptSearch      = "";
+        _adoptResults     = [];
+        _adoptParentId    = null;
+        _adoptParentTitle = null;
+        _adoptTab         = "search";
         _focusAdoptSearch = true;
     }
 
     private void CloseAdoptModal()
     {
-        _adoptTarget = null;
+        _adoptTarget      = null;
+        _adoptParentId    = null;
+        _adoptParentTitle = null;
         _adoptSearchCts?.Cancel();
         _adoptSearchCts?.Dispose();
         _adoptSearchCts = null;
+    }
+
+    private void SelectParent(Guid id, string title)
+    {
+        _adoptParentId    = id;
+        _adoptParentTitle = title;
+    }
+
+    private async Task SwitchToBrowseAsync()
+    {
+        _adoptTab = "browse";
+        if (_adoptTreeRoot is null)
+        {
+            if (Session.Notes is null || Session.CurrentUser is null) return;
+            var root = await Session.Notes.GetRootAsync(Session.CurrentUser.Id);
+            if (root is null) return;
+            _adoptTreeRoot = new NoteTreeNode
+            {
+                Id          = root.Id,
+                Title       = root.Title,
+                CreatedBy   = root.CreatedBy,
+                IsPrivate   = root.IsPrivate,
+                HasChildren = true,
+                IsLoaded    = false
+            };
+        }
     }
 
     private async Task OnAdoptSearchInput(ChangeEventArgs e)
@@ -138,29 +246,75 @@
         if (e.Key == "Escape") CloseAdoptModal();
     }
 
-    private async Task AdoptAsync(Note parent)
+    private async Task AdoptAsync()
     {
-        if (_adoptTarget is null || Session.Notes is null) return;
-        var orphan = _adoptTarget;
+        if (_adoptTarget is null || _adoptParentId is null || Session.Notes is null) return;
+        var orphan   = _adoptTarget;
+        var parentId = _adoptParentId.Value;
         CloseAdoptModal();
 
         _busy = true;
         StateHasChanged();
         try
         {
-            var fresh = await Session.Notes.GetByIdAsync(parent.Id);
+            var fresh = await Session.Notes.GetByIdAsync(parentId);
             if (fresh is null) return;
 
             var separator = fresh.Content.Length > 0 && !fresh.Content.EndsWith('\n') ? "\n" : "";
             fresh.Content += $"{separator}[{orphan.Title}](note:{orphan.Id})";
 
             await Session.Notes.SaveAsync(fresh, fresh.ContentHash);
-            Notifier.NotifyChanged(parent.Id);
+            Notifier.NotifyChanged(parentId);
             await LoadAsync();
         }
         finally
         {
             _busy = false;
+        }
+    }
+
+    private void OnImportFileSelected(InputFileChangeEventArgs e)
+    {
+        _importFile   = e.File;
+        _importResult = null;
+        _importError  = null;
+    }
+
+    private async Task ImportAsync()
+    {
+        if (_importFile is null || Session.Notes is null || Session.Kanban is null ||
+            Session.Attachments is null || Session.CurrentUser is null) return;
+
+        _importBusy   = true;
+        _importResult = null;
+        _importError  = null;
+        StateHasChanged();
+
+        var tempZip = Path.GetTempFileName();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"indentr-import-{Guid.NewGuid():N}");
+        try
+        {
+            await using (var stream = _importFile.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024))
+            await using (var fs = File.Create(tempZip))
+                await stream.CopyToAsync(fs);
+
+            ZipFile.ExtractToDirectory(tempZip, tempDir);
+            _importResult = await SubtreeImporter.ImportAsync(
+                Session.Notes, Session.Kanban, Session.Attachments, tempDir, Session.CurrentUser.Id);
+            Notifier.NotifyChanged(Session.CurrentUser.Id);
+            _importFile = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _importError = ex.Message;
+        }
+        finally
+        {
+            if (File.Exists(tempZip)) File.Delete(tempZip);
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+            _importBusy = false;
+            StateHasChanged();
         }
     }
 }

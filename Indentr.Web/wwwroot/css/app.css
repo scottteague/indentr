@@ -134,6 +134,8 @@ a:hover { text-decoration: underline; }
 }
 
 .init-error h2 { color: #e06c75; }
+.init-link { color: var(--accent); text-decoration: none; }
+.init-link:hover { text-decoration: underline; }
 
 /* ── Profile picker ──────────────────────────────────────────────────── */
 .profile-picker {
@@ -219,3 +221,33 @@ a:hover { text-decoration: underline; }
 
 .btn-save:hover:not(:disabled) { opacity: 0.85; }
 .btn-save:disabled { opacity: 0.5; cursor: default; }
+
+/* ── Note picker tree (NotePickerTreeNode) ───────────────────────────── */
+.picker-label {
+    flex: 1;
+    min-width: 0;
+    background: none;
+    border: none;
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.picker-label:hover { background: var(--bg-hover); }
+
+.picker-label.picker-selected {
+    background: var(--accent);
+    color: #000;
+}
+
+.picker-label.picker-private {
+    color: var(--fg-muted);
+    font-style: italic;
+}
