@@ -18,6 +18,7 @@ public partial class App : Application
     public static IScratchpadRepository Scratchpads { get; private set; } = null!;
     public static IAttachmentStore      Attachments { get; private set; } = null!;
     public static IKanbanRepository     Kanban      { get; private set; } = null!;
+    public static ISyncService          Sync        { get; private set; } = null!;
     public static User                  CurrentUser { get; private set; } = null!;
     public static DatabaseProfile       CurrentProfile { get; private set; } = null!;
 
@@ -72,6 +73,11 @@ public partial class App : Application
             profile.Database.Name, profile.Database.Username, profile.Database.Password,
             schemaName);
 
+        string? remoteCs = null;
+        if (profile.RemoteDatabase is { } remote)
+            remoteCs = ConnectionStringBuilder.Build(
+                remote.Host, remote.Port, remote.Name, remote.Username, remote.Password);
+
         Notes       = new NoteRepository(cs);
         Users       = new UserRepository(cs);
         Scratchpads = new ScratchpadRepository(cs);
@@ -93,6 +99,9 @@ public partial class App : Application
         }
 
         CurrentUser = await Users.GetOrCreateAsync(profile.Username);
+
+        // SyncService needs the user ID so the pull phase can apply the privacy filter.
+        Sync = new SyncService(cs, remoteCs, CurrentUser.Id);
 
         var recoveries = RecoveryManager.Scan();
         if (recoveries.Count > 0)
