@@ -259,9 +259,13 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         var (username, createdAt) = (r.GetString(0), r.GetDateTime(1));
         await r.CloseAsync();
 
+        // Skip if the username is already claimed on remote by a different ID.
+        // This happens when the local DB was recreated and got a fresh UUID for
+        // the same username that already exists on remote.
         await using var upsert = new NpgsqlCommand(
             @"INSERT INTO users (id, username, created_at)
-              VALUES (@id, @username, @createdAt)
+              SELECT @id, @username, @createdAt
+              WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = @username AND id <> @id)
               ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username",
             remote);
         upsert.Parameters.AddWithValue("id", id);
