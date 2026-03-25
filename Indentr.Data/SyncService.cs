@@ -336,9 +336,11 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
             @"INSERT INTO notes
                 (id, parent_id, is_root, title, content, content_hash,
                  owner_id, created_by, is_private, sort_order, created_at, updated_at, deleted_at)
-              VALUES
-                (@id, NULL, @isRoot, @title, @content, @hash,
-                 @ownerId, @createdBy, @isPrivate, @sortOrder, @createdAt, @updatedAt, @deletedAt)
+              SELECT @id, NULL, @isRoot, @title, @content, @hash,
+                     @ownerId, @createdBy, @isPrivate, @sortOrder, @createdAt, @updatedAt, @deletedAt
+              WHERE NOT (@isRoot AND EXISTS (
+                  SELECT 1 FROM notes WHERE is_root = TRUE AND created_by = @createdBy AND id <> @id
+              ))
               ON CONFLICT (id) DO UPDATE SET
                 is_root      = EXCLUDED.is_root,
                 title        = EXCLUDED.title,
