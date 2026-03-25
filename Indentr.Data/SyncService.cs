@@ -815,9 +815,21 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
 
             if (!exists)
             {
-                // Genuinely new on remote → insert.
-                await InsertNoteFromRemoteAsync(local, rn, userIdRemap);
-                parentIdFixes.Add((rn.Id, rn.ParentId));
+                if (rn.IsRoot && pullNoteIdRemap.TryGetValue(rn.Id, out var localRootId))
+                {
+                    // Remote root already exists locally under a different ID (a blank root
+                    // created by EnsureRootExistsAsync when the local DB was fresh).
+                    // Merge the remote root's content into the existing local root instead
+                    // of trying — and failing — to insert a duplicate root.
+                    await MergeIntoLocalRootAsync(local, rn, localRootId, userIdRemap);
+                    // No parentIdFix needed: roots never have a parent.
+                }
+                else
+                {
+                    // Genuinely new on remote → insert.
+                    await InsertNoteFromRemoteAsync(local, rn, userIdRemap);
+                    parentIdFixes.Add((rn.Id, rn.ParentId));
+                }
             }
             else if (rn.ContentHash == localHash)
             {
@@ -895,14 +907,44 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         await cmd.ExecuteNonQueryAsync();
     }
 
+    // Merges remote root content into the blank local root when the remote root's ID
+    // differs from the local root's ID (i.e. the local DB was recreated fresh).
+    // Never touches id, is_root, created_by, or created_at — only content fields.
+    private static async Task MergeIntoLocalRootAsync(
+        NpgsqlConnection local, RemoteNote rn, Guid localRootId, Dictionary<Guid, Guid> userIdRemap)
+    {
+        await using var cmd = new NpgsqlCommand(
+            @"UPDATE notes SET
+                title        = @title,
+                content      = @content,
+                content_hash = @hash,
+                owner_id     = @ownerId,
+                is_private   = @isPrivate,
+                sort_order   = @sortOrder,
+                updated_at   = @updatedAt,
+                deleted_at   = @deletedAt
+              WHERE id = @id",
+            local);
+        cmd.Parameters.AddWithValue("id",        localRootId);
+        cmd.Parameters.AddWithValue("title",     rn.Title);
+        cmd.Parameters.AddWithValue("content",   rn.Content);
+        cmd.Parameters.AddWithValue("hash",      rn.ContentHash);
+        cmd.Parameters.AddWithValue("ownerId",   Remap(userIdRemap, rn.OwnerId));
+        cmd.Parameters.AddWithValue("isPrivate", rn.IsPrivate);
+        cmd.Parameters.AddWithValue("sortOrder", rn.SortOrder);
+        cmd.Parameters.AddWithValue("updatedAt", rn.UpdatedAt);
+        cmd.Parameters.AddWithValue("deletedAt", (object?)rn.DeletedAt ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     private static async Task UpdateNoteFromRemoteAsync(
         NpgsqlConnection local, RemoteNote rn, Dictionary<Guid, Guid> userIdRemap)
     {
         // parent_id is intentionally excluded — handled by the fix pass in PullNotesAsync.
-        // created_at and created_by are immutable and not updated.
+        // created_at, created_by, and is_root are immutable and not updated.
+        // Updating is_root could violate idx_notes_root_per_user if a second root exists.
         await using var cmd = new NpgsqlCommand(
             @"UPDATE notes SET
-                is_root      = @isRoot,
                 title        = @title,
                 content      = @content,
                 content_hash = @hash,
@@ -914,7 +956,6 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
               WHERE id = @id",
             local);
         cmd.Parameters.AddWithValue("id",        rn.Id);
-        cmd.Parameters.AddWithValue("isRoot",    rn.IsRoot);
         cmd.Parameters.AddWithValue("title",     rn.Title);
         cmd.Parameters.AddWithValue("content",   rn.Content);
         cmd.Parameters.AddWithValue("hash",      rn.ContentHash);
