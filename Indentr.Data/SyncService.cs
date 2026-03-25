@@ -705,9 +705,14 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         // under a different UUID. Applied when writing user FKs into the local DB.
         var userIdRemap = await BuildUserIdRemapAsync(remote, local);
 
+        // Translate the local userId to its remote equivalent so the privacy filter
+        // on the remote query matches notes owned by this user under their remote UUID.
+        var localToRemote = await BuildUserIdRemapAsync(local, remote);
+        var remoteUserId  = Remap(localToRemote, userId);
+
         // Process in FK dependency order so referenced rows exist before referencing ones.
         await PullUsersAsync(local, remote);
-        await PullNotesAsync(local, remote, lastSyncedAt, safetyFilterSince, userId, userIdRemap);
+        await PullNotesAsync(local, remote, lastSyncedAt, safetyFilterSince, userId, remoteUserId, userIdRemap);
         await PullScratchpadsAsync(local, remote, safetyFilterSince, userIdRemap);
         await PullKanbanBoardsAsync(local, remote, safetyFilterSince, userIdRemap);
         await PullKanbanColumnsAsync(local, remote, safetyFilterSince);
@@ -744,12 +749,15 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
 
     private static async Task PullNotesAsync(
         NpgsqlConnection local, NpgsqlConnection remote,
-        DateTimeOffset lastSyncedAt, DateTimeOffset safetyFilterSince, Guid userId,
+        DateTimeOffset lastSyncedAt, DateTimeOffset safetyFilterSince,
+        Guid userId, Guid remoteUserId,
         Dictionary<Guid, Guid> userIdRemap)
     {
         // Fetch notes modified on remote since (lastSyncedAt - PullSafetyBuffer).
         // The privacy filter mirrors the read-path policy: pull public notes from anyone,
         // but only pull private notes that belong to the current user.
+        // remoteUserId is used here because remote notes are stored under the remote UUID,
+        // which may differ from the local UUID when the local DB was recreated.
         var remoteNotes = new List<RemoteNote>();
         await using (var cmd = new NpgsqlCommand(
             @"SELECT id, parent_id, is_root, title, content, content_hash,
@@ -760,7 +768,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
             remote))
         {
             cmd.Parameters.AddWithValue("since", safetyFilterSince.UtcDateTime);
-            cmd.Parameters.AddWithValue("userId", userId);
+            cmd.Parameters.AddWithValue("userId", remoteUserId);
             await using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
                 remoteNotes.Add(new RemoteNote(
@@ -773,6 +781,22 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         }
 
         if (remoteNotes.Count == 0) return;
+
+        // Build a note ID remap for remote root notes that will be skipped on insert
+        // (because local already has a root for the same user). Their ID is used as
+        // parent_id by child notes, so we need to translate it to the local root ID.
+        var pullNoteIdRemap = new Dictionary<Guid, Guid>();
+        foreach (var rn in remoteNotes.Where(n => n.IsRoot))
+        {
+            var localCreatedBy = Remap(userIdRemap, rn.CreatedBy);
+            await using var findLocal = new NpgsqlCommand(
+                "SELECT id FROM notes WHERE is_root = TRUE AND created_by = @cb AND id <> @id AND deleted_at IS NULL",
+                local);
+            findLocal.Parameters.AddWithValue("cb", localCreatedBy);
+            findLocal.Parameters.AddWithValue("id", rn.Id);
+            if (await findLocal.ExecuteScalarAsync() is Guid localRootId)
+                pullNoteIdRemap[rn.Id] = localRootId;
+        }
 
         // Pass 1: insert/update without parent_id to avoid FK ordering issues.
         // Track which notes need their parent_id fixed in pass 2.
@@ -830,11 +854,13 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         }
 
         // Pass 2: restore correct parent_ids now that all notes are present locally.
+        // Translate any parent_id that points to a skipped remote root to the local root.
         foreach (var (id, parentId) in parentIdFixes)
         {
+            var resolvedParent = parentId.HasValue ? Remap(pullNoteIdRemap, parentId.Value) : (Guid?)null;
             await using var fix = new NpgsqlCommand(
                 "UPDATE notes SET parent_id = @pid WHERE id = @id", local);
-            fix.Parameters.AddWithValue("pid", (object?)parentId ?? DBNull.Value);
+            fix.Parameters.AddWithValue("pid", (object?)resolvedParent ?? DBNull.Value);
             fix.Parameters.AddWithValue("id", id);
             await fix.ExecuteNonQueryAsync();
         }
