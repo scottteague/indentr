@@ -819,9 +819,13 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                 {
                     // Remote root already exists locally under a different ID (a blank root
                     // created by EnsureRootExistsAsync when the local DB was fresh).
-                    // Merge the remote root's content into the existing local root instead
-                    // of trying — and failing — to insert a duplicate root.
-                    await MergeIntoLocalRootAsync(local, rn, localRootId, userIdRemap);
+                    // Re-ID the local root to the remote root's UUID so that subsequent
+                    // syncs resolve it normally via the exists=true path, and local edits
+                    // can be pushed to the remote root in the next sync cycle.
+                    await AdoptRemoteRootAsync(local, rn, localRootId, userIdRemap);
+                    // Remove from remap: after re-ID, child notes can reference rn.Id directly
+                    // without translation — their parent_id = rn.Id is now correct locally.
+                    pullNoteIdRemap.Remove(rn.Id);
                     // No parentIdFix needed: roots never have a parent.
                 }
                 else
@@ -907,14 +911,34 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         await cmd.ExecuteNonQueryAsync();
     }
 
-    // Merges remote root content into the blank local root when the remote root's ID
-    // differs from the local root's ID (i.e. the local DB was recreated fresh).
-    // Never touches id, is_root, created_by, or created_at — only content fields.
-    private static async Task MergeIntoLocalRootAsync(
+    // Re-IDs the blank local root to match the remote root's UUID, and copies the
+    // remote content in the same statement. After this, local and remote share one
+    // UUID so all subsequent syncs use the normal exists=true update/conflict path,
+    // and local edits can be pushed to the remote root correctly.
+    //
+    // Only safe when localRootId has no attachments or kanban_card references
+    // (guaranteed on a fresh local DB). The notes.parent_id self-reference is
+    // handled first so no FK violation fires on the PK rename.
+    //
+    // The sync_log trigger on notes fires UPDATE with NEW.id = rn.Id, so the
+    // re-IDed note will be pushed to remote on the next sync cycle automatically.
+    private static async Task AdoptRemoteRootAsync(
         NpgsqlConnection local, RemoteNote rn, Guid localRootId, Dictionary<Guid, Guid> userIdRemap)
     {
-        await using var cmd = new NpgsqlCommand(
+        // Step 1: re-point any children that reference the old local root ID.
+        // (Typically none on a fresh local DB, but safe to run regardless.)
+        await using var repoint = new NpgsqlCommand(
+            "UPDATE notes SET parent_id = @newId WHERE parent_id = @oldId", local);
+        repoint.Parameters.AddWithValue("newId", rn.Id);
+        repoint.Parameters.AddWithValue("oldId", localRootId);
+        await repoint.ExecuteNonQueryAsync();
+
+        // Step 2: rename the PK to the remote root's UUID and apply remote content.
+        // created_by is intentionally left as-is (the local user UUID) — all local
+        // notes use the local UUID for created_by, and the push phase remaps it.
+        await using var adopt = new NpgsqlCommand(
             @"UPDATE notes SET
+                id           = @newId,
                 title        = @title,
                 content      = @content,
                 content_hash = @hash,
@@ -923,18 +947,27 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                 sort_order   = @sortOrder,
                 updated_at   = @updatedAt,
                 deleted_at   = @deletedAt
-              WHERE id = @id",
+              WHERE id = @oldId",
             local);
-        cmd.Parameters.AddWithValue("id",        localRootId);
-        cmd.Parameters.AddWithValue("title",     rn.Title);
-        cmd.Parameters.AddWithValue("content",   rn.Content);
-        cmd.Parameters.AddWithValue("hash",      rn.ContentHash);
-        cmd.Parameters.AddWithValue("ownerId",   Remap(userIdRemap, rn.OwnerId));
-        cmd.Parameters.AddWithValue("isPrivate", rn.IsPrivate);
-        cmd.Parameters.AddWithValue("sortOrder", rn.SortOrder);
-        cmd.Parameters.AddWithValue("updatedAt", rn.UpdatedAt);
-        cmd.Parameters.AddWithValue("deletedAt", (object?)rn.DeletedAt ?? DBNull.Value);
-        await cmd.ExecuteNonQueryAsync();
+        adopt.Parameters.AddWithValue("newId",     rn.Id);
+        adopt.Parameters.AddWithValue("oldId",     localRootId);
+        adopt.Parameters.AddWithValue("title",     rn.Title);
+        adopt.Parameters.AddWithValue("content",   rn.Content);
+        adopt.Parameters.AddWithValue("hash",      rn.ContentHash);
+        adopt.Parameters.AddWithValue("ownerId",   Remap(userIdRemap, rn.OwnerId));
+        adopt.Parameters.AddWithValue("isPrivate", rn.IsPrivate);
+        adopt.Parameters.AddWithValue("sortOrder", rn.SortOrder);
+        adopt.Parameters.AddWithValue("updatedAt", rn.UpdatedAt);
+        adopt.Parameters.AddWithValue("deletedAt", (object?)rn.DeletedAt ?? DBNull.Value);
+        await adopt.ExecuteNonQueryAsync();
+
+        // Step 3: remove any stale sync_log entries for the old local root ID.
+        // The trigger in step 2 already logged an UPDATE for rn.Id (the new UUID),
+        // which will cause the remote root to be pushed correctly on the next cycle.
+        await using var cleanLog = new NpgsqlCommand(
+            "DELETE FROM sync_log WHERE entity_type = 'notes' AND entity_id = @oldId", local);
+        cleanLog.Parameters.AddWithValue("oldId", localRootId);
+        await cleanLog.ExecuteNonQueryAsync();
     }
 
     private static async Task UpdateNoteFromRemoteAsync(
