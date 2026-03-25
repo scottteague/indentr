@@ -1,0 +1,42 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Indentr.UI.Views.KanbanNoteRecoveryWindow"
+        Icon="avares://Indentr.UI/Assets/icon.png"
+        Title="Recover Kanban-Linked Notes"
+        Width="640" Height="540"
+        WindowStartupLocation="CenterScreen">
+
+    <DockPanel Margin="12" LastChildFill="True">
+
+        <!-- Top: instructions + folder + scan -->
+        <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,8">
+            <TextBlock TextWrapping="Wrap" Opacity="0.75"
+                       Text="This tool recovers notes that were linked from kanban cards but missing from an export. Point it at your export folder, scan for gaps, then provide the source database connection string to pull them in." />
+
+            <TextBlock Text="Export folder:" FontWeight="SemiBold" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                <TextBox Grid.Column="0" x:Name="ExportFolderBox" IsReadOnly="True" Watermark="Select the export folder…" />
+                <Button  Grid.Column="1" Content="Browse…" Click="OnBrowseClicked" />
+            </Grid>
+            <Button Content="Scan for missing notes" Click="OnScanClicked" />
+        </StackPanel>
+
+        <!-- Bottom: source DB + recover button + status -->
+        <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
+            <TextBlock Text="Source database connection string:" FontWeight="SemiBold" />
+            <TextBox x:Name="SourceConnBox"
+                     Watermark="Host=…;Port=5432;Database=…;Username=…;Password=…"
+                     FontFamily="Cascadia Code,Consolas,monospace"
+                     FontSize="12" />
+            <Button x:Name="RecoverButton" Content="Recover missing notes"
+                    IsEnabled="False" Click="OnRecoverClicked" />
+            <TextBlock x:Name="StatusText" TextWrapping="Wrap" Opacity="0.75" />
+        </StackPanel>
+
+        <!-- Middle: results list -->
+        <Border BorderThickness="1" CornerRadius="4" Margin="0,0,0,0">
+            <ListBox x:Name="MissingList" />
+        </Border>
+
+    </DockPanel>
+</Window>
