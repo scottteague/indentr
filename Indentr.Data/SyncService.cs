@@ -184,10 +184,15 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         }
 
         // Second pass: restore correct parent_ids on all pushed notes.
+        // Also build a note ID remap for any note that was skipped on insert (e.g. a
+        // duplicate root) so its local ID can be translated to the existing remote ID
+        // when used as a parent_id reference.
         var pushedNoteIds = upsertGroups
             .Where(g => g.EntityType == "notes")
-            .Select(g => g.EntityId);
-        await FixNoteParentIdsAsync(local, remote, pushedNoteIds);
+            .Select(g => g.EntityId)
+            .ToList();
+        var noteIdRemap = await BuildNoteIdRemapAsync(local, remote, pushedNoteIds, userIdRemap);
+        await FixNoteParentIdsAsync(local, remote, pushedNoteIds, noteIdRemap);
 
         // Delete in reverse FK dependency order (children before parents).
         foreach (var type in DeleteOrder)
@@ -283,6 +288,42 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     private static Guid Remap(Dictionary<Guid, Guid> remap, Guid id) =>
         remap.TryGetValue(id, out var mapped) ? mapped : id;
 
+    // For each pushed note that is a root and whose created_by was remapped to a
+    // different user UUID, find the existing root on remote for that user and record
+    // localNoteId → remoteNoteId so FixNoteParentIdsAsync can translate parent_id refs.
+    private static async Task<Dictionary<Guid, Guid>> BuildNoteIdRemapAsync(
+        NpgsqlConnection local, NpgsqlConnection remote,
+        IEnumerable<Guid> pushedNoteIds, Dictionary<Guid, Guid> userIdRemap)
+    {
+        var remap = new Dictionary<Guid, Guid>();
+        if (userIdRemap.Count == 0) return remap;
+
+        foreach (var noteId in pushedNoteIds)
+        {
+            await using var localCmd = new NpgsqlCommand(
+                "SELECT is_root, created_by FROM notes WHERE id = @id", local);
+            localCmd.Parameters.AddWithValue("id", noteId);
+            await using var lr = await localCmd.ExecuteReaderAsync();
+            if (!await lr.ReadAsync()) continue;
+            var isRoot    = lr.GetBoolean(0);
+            var createdBy = lr.GetGuid(1);
+            await lr.CloseAsync();
+
+            if (!isRoot) continue;
+            var remoteCreatedBy = Remap(userIdRemap, createdBy);
+            if (remoteCreatedBy == createdBy) continue; // user wasn't remapped
+
+            // Find the root note remote already has for this user.
+            await using var remoteCmd = new NpgsqlCommand(
+                "SELECT id FROM notes WHERE is_root = TRUE AND created_by = @createdBy AND deleted_at IS NULL",
+                remote);
+            remoteCmd.Parameters.AddWithValue("createdBy", remoteCreatedBy);
+            if (await remoteCmd.ExecuteScalarAsync() is Guid remoteRootId && remoteRootId != noteId)
+                remap[noteId] = remoteRootId;
+        }
+        return remap;
+    }
+
     private static async Task UpsertUserAsync(
         NpgsqlConnection local, NpgsqlConnection remote, Guid id)
     {
@@ -368,8 +409,11 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     }
 
     // Pass 2 of 2: set correct parent_ids now that all pushed notes exist on remote.
+    // noteIdRemap translates any local note ID that was skipped on remote (e.g. a
+    // duplicate root) to the ID of the equivalent note that actually exists there.
     private static async Task FixNoteParentIdsAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, IEnumerable<Guid> noteIds)
+        NpgsqlConnection local, NpgsqlConnection remote,
+        IEnumerable<Guid> noteIds, Dictionary<Guid, Guid> noteIdRemap)
     {
         foreach (var id in noteIds)
         {
@@ -377,7 +421,10 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                 "SELECT parent_id FROM notes WHERE id = @id", local);
             cmd.Parameters.AddWithValue("id", id);
             var raw      = await cmd.ExecuteScalarAsync();
-            var parentId = raw is Guid g ? (Guid?)g : null;
+            var parentId = raw is Guid g ? (Guid?)g : (Guid?)null;
+
+            // Translate local parent IDs that don't exist on remote.
+            if (parentId.HasValue) parentId = Remap(noteIdRemap, parentId.Value);
 
             await using var update = new NpgsqlCommand(
                 "UPDATE notes SET parent_id = @parentId WHERE id = @id", remote);
