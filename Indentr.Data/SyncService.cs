@@ -727,7 +727,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         {
             await using var upsert = new NpgsqlCommand(
                 @"INSERT INTO users (id, username, created_at)
-                  VALUES (@id, @username, @createdAt)
+                  SELECT @id, @username, @createdAt
+                  WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = @username AND id <> @id)
                   ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username",
                 local);
             upsert.Parameters.AddWithValue("id", id);
