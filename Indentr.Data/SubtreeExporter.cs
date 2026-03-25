@@ -48,12 +48,30 @@ public static class SubtreeExporter
                 Encoding.UTF8);
         }
 
+        // Collect all notes linked from kanban cards that aren't already in the subtree.
+        var subtreeIds = allNotes.Select(n => n.Id).ToHashSet();
+        var extraNotes = new List<Note>();
+
         int boardCount = 0;
         foreach (var boardId in boardIds)
         {
             var board = await kanban.GetBoardAsync(boardId);
             if (board is null) continue;
             var columns = await kanban.GetColumnsWithCardsAsync(boardId);
+
+            // Fetch card-linked notes that fall outside the exported subtree.
+            foreach (var col in columns)
+                foreach (var card in col.Cards)
+                    if (card.NoteId is { } nid && !subtreeIds.Contains(nid))
+                    {
+                        var linked = await notes.GetByIdAsync(nid);
+                        if (linked is not null)
+                        {
+                            extraNotes.Add(linked);
+                            subtreeIds.Add(nid);    // don't add the same note twice
+                        }
+                    }
+
             var boardObj = new
             {
                 id        = board.Id,
@@ -80,8 +98,20 @@ public static class SubtreeExporter
             boardCount++;
         }
 
+        // Write extra notes (card-linked, outside the main subtree) into the notes folder.
+        foreach (var note in extraNotes)
+        {
+            var filename = $"{SafeName(note.Title)}-{note.Id}.md";
+            await File.WriteAllTextAsync(
+                Path.Combine(outFolder, "notes", filename),
+                BuildNoteFrontmatter(note) + note.Content,
+                Encoding.UTF8);
+        }
+
+        var allExportedNotes = allNotes.Concat(extraNotes).ToList();
+
         int attachmentCount = 0;
-        foreach (var note in allNotes)
+        foreach (var note in allExportedNotes)
         {
             var metas = await attachments.ListForNoteAsync(note.Id);
             foreach (var meta in metas)
@@ -110,7 +140,7 @@ public static class SubtreeExporter
             version         = 1,
             exportedAt      = DateTime.UtcNow,
             rootNoteId      = rootNoteId,
-            noteCount       = allNotes.Count,
+            noteCount       = allNotes.Count + extraNotes.Count,
             boardCount      = boardCount,
             attachmentCount = attachmentCount
         };
