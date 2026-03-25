@@ -164,6 +164,12 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         var dels      = entries.Where(e => e.Operation == "DELETE").ToList();
         var processed = new List<long>();
 
+        // Build a remap for any local user UUID whose username already exists on remote
+        // under a different UUID (e.g. after a local DB was recreated). Entities that
+        // carry user FKs (owner_id, created_by, user_id) substitute the remote UUID so
+        // the FK constraints on remote are satisfied.
+        var userIdRemap = await BuildUserIdRemapAsync(local, remote);
+
         // Upsert in FK dependency order.
         // Notes are pushed with parent_id = NULL on this pass to avoid FK ordering
         // issues when an entire new subtree is being synced. FixNoteParentIdsAsync
@@ -172,7 +178,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         {
             foreach (var group in upsertGroups.Where(g => g.EntityType == type))
             {
-                await UpsertEntityAsync(local, remote, localCs, remoteCs, group.EntityType, group.EntityId);
+                await UpsertEntityAsync(local, remote, localCs, remoteCs, group.EntityType, group.EntityId, userIdRemap);
                 processed.AddRange(group.SyncLogIds);
             }
         }
@@ -233,20 +239,49 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     private static Task UpsertEntityAsync(
         NpgsqlConnection local, NpgsqlConnection remote,
         string localCs, string remoteCs,
-        string entityType, Guid id) =>
+        string entityType, Guid id,
+        Dictionary<Guid, Guid> userIdRemap) =>
         entityType switch
         {
             "users"          => UpsertUserAsync(local, remote, id),
-            "notes"          => UpsertNoteAsync(local, remote, id),
+            "notes"          => UpsertNoteAsync(local, remote, id, userIdRemap),
             "attachments"    => UpsertAttachmentAsync(localCs, remoteCs, id),
-            "scratchpads"    => UpsertScratchpadAsync(local, remote, id),
-            "kanban_boards"  => UpsertKanbanBoardAsync(local, remote, id),
+            "scratchpads"    => UpsertScratchpadAsync(local, remote, id, userIdRemap),
+            "kanban_boards"  => UpsertKanbanBoardAsync(local, remote, id, userIdRemap),
             "kanban_columns" => UpsertKanbanColumnAsync(local, remote, id),
             "kanban_cards"   => UpsertKanbanCardAsync(local, remote, id),
             _                => Task.CompletedTask
         };
 
     // ── Per-entity upserts ────────────────────────────────────────────────────
+
+    // Returns a mapping of localUserId → remoteUserId for any username that exists
+    // on remote under a different UUID than the local DB has for that username.
+    private static async Task<Dictionary<Guid, Guid>> BuildUserIdRemapAsync(
+        NpgsqlConnection local, NpgsqlConnection remote)
+    {
+        var remoteByUsername = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        await using var remoteCmd = new NpgsqlCommand("SELECT id, username FROM users", remote);
+        await using var remoteR   = await remoteCmd.ExecuteReaderAsync();
+        while (await remoteR.ReadAsync())
+            remoteByUsername[remoteR.GetString(1)] = remoteR.GetGuid(0);
+        await remoteR.CloseAsync();
+
+        var remap = new Dictionary<Guid, Guid>();
+        await using var localCmd = new NpgsqlCommand("SELECT id, username FROM users", local);
+        await using var localR   = await localCmd.ExecuteReaderAsync();
+        while (await localR.ReadAsync())
+        {
+            var localId  = localR.GetGuid(0);
+            var username = localR.GetString(1);
+            if (remoteByUsername.TryGetValue(username, out var remoteId) && remoteId != localId)
+                remap[localId] = remoteId;
+        }
+        return remap;
+    }
+
+    private static Guid Remap(Dictionary<Guid, Guid> remap, Guid id) =>
+        remap.TryGetValue(id, out var mapped) ? mapped : id;
 
     private static async Task UpsertUserAsync(
         NpgsqlConnection local, NpgsqlConnection remote, Guid id)
@@ -277,7 +312,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     // Pass 1 of 2: upsert without parent_id (always NULL). FixNoteParentIdsAsync is pass 2.
     // search_vector is a GENERATED ALWAYS AS column and must be omitted from the INSERT list.
     private static async Task UpsertNoteAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, Guid id)
+        NpgsqlConnection local, NpgsqlConnection remote, Guid id,
+        Dictionary<Guid, Guid> userIdRemap)
     {
         await using var cmd = new NpgsqlCommand(
             @"SELECT is_root, title, content, content_hash, owner_id, created_by,
@@ -319,8 +355,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         upsert.Parameters.AddWithValue("title", row.Title);
         upsert.Parameters.AddWithValue("content", row.Content);
         upsert.Parameters.AddWithValue("hash", row.Hash);
-        upsert.Parameters.AddWithValue("ownerId", row.OwnerId);
-        upsert.Parameters.AddWithValue("createdBy", row.CreatedBy);
+        upsert.Parameters.AddWithValue("ownerId",   Remap(userIdRemap, row.OwnerId));
+        upsert.Parameters.AddWithValue("createdBy", Remap(userIdRemap, row.CreatedBy));
         upsert.Parameters.AddWithValue("isPrivate", row.IsPrivate);
         upsert.Parameters.AddWithValue("sortOrder", row.SortOrder);
         upsert.Parameters.AddWithValue("createdAt", row.CreatedAt);
@@ -352,7 +388,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     // Scratchpads conflict on user_id (UNIQUE), not id, because remote may have already
     // auto-created its own scratchpad row for the same user with a different UUID.
     private static async Task UpsertScratchpadAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, Guid id)
+        NpgsqlConnection local, NpgsqlConnection remote, Guid id,
+        Dictionary<Guid, Guid> userIdRemap)
     {
         await using var cmd = new NpgsqlCommand(
             "SELECT user_id, content, content_hash, updated_at FROM scratchpads WHERE id = @id",
@@ -372,16 +409,17 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                 content_hash = EXCLUDED.content_hash,
                 updated_at   = EXCLUDED.updated_at",
             remote);
-        upsert.Parameters.AddWithValue("id", id);
-        upsert.Parameters.AddWithValue("userId", userId);
-        upsert.Parameters.AddWithValue("content", content);
-        upsert.Parameters.AddWithValue("hash", hash);
+        upsert.Parameters.AddWithValue("id",        id);
+        upsert.Parameters.AddWithValue("userId",    Remap(userIdRemap, userId));
+        upsert.Parameters.AddWithValue("content",   content);
+        upsert.Parameters.AddWithValue("hash",      hash);
         upsert.Parameters.AddWithValue("updatedAt", updatedAt);
         await upsert.ExecuteNonQueryAsync();
     }
 
     private static async Task UpsertKanbanBoardAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, Guid id)
+        NpgsqlConnection local, NpgsqlConnection remote, Guid id,
+        Dictionary<Guid, Guid> userIdRemap)
     {
         await using var cmd = new NpgsqlCommand(
             "SELECT title, owner_id, created_at, updated_at, deleted_at FROM kanban_boards WHERE id = @id",
@@ -402,9 +440,9 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                 updated_at = EXCLUDED.updated_at,
                 deleted_at = EXCLUDED.deleted_at",
             remote);
-        upsert.Parameters.AddWithValue("id", id);
-        upsert.Parameters.AddWithValue("title", title);
-        upsert.Parameters.AddWithValue("ownerId", ownerId);
+        upsert.Parameters.AddWithValue("id",      id);
+        upsert.Parameters.AddWithValue("title",   title);
+        upsert.Parameters.AddWithValue("ownerId", Remap(userIdRemap, ownerId));
         upsert.Parameters.AddWithValue("createdAt", createdAt);
         upsert.Parameters.AddWithValue("updatedAt", updatedAt);
         upsert.Parameters.AddWithValue("deletedAt", (object?)deletedAt ?? DBNull.Value);
