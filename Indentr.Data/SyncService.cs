@@ -260,27 +260,27 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
 
     // ── Per-entity upserts ────────────────────────────────────────────────────
 
-    // Returns a mapping of localUserId → remoteUserId for any username that exists
-    // on remote under a different UUID than the local DB has for that username.
+    // For each user in 'src', if their username exists in 'dst' under a different UUID,
+    // records src_id → dst_id. Call as (local, remote) for push, (remote, local) for pull.
     private static async Task<Dictionary<Guid, Guid>> BuildUserIdRemapAsync(
-        NpgsqlConnection local, NpgsqlConnection remote)
+        NpgsqlConnection src, NpgsqlConnection dst)
     {
-        var remoteByUsername = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
-        await using var remoteCmd = new NpgsqlCommand("SELECT id, username FROM users", remote);
-        await using var remoteR   = await remoteCmd.ExecuteReaderAsync();
-        while (await remoteR.ReadAsync())
-            remoteByUsername[remoteR.GetString(1)] = remoteR.GetGuid(0);
-        await remoteR.CloseAsync();
+        var dstByUsername = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+        await using var dstCmd = new NpgsqlCommand("SELECT id, username FROM users", dst);
+        await using var dstR   = await dstCmd.ExecuteReaderAsync();
+        while (await dstR.ReadAsync())
+            dstByUsername[dstR.GetString(1)] = dstR.GetGuid(0);
+        await dstR.CloseAsync();
 
         var remap = new Dictionary<Guid, Guid>();
-        await using var localCmd = new NpgsqlCommand("SELECT id, username FROM users", local);
-        await using var localR   = await localCmd.ExecuteReaderAsync();
-        while (await localR.ReadAsync())
+        await using var srcCmd = new NpgsqlCommand("SELECT id, username FROM users", src);
+        await using var srcR   = await srcCmd.ExecuteReaderAsync();
+        while (await srcR.ReadAsync())
         {
-            var localId  = localR.GetGuid(0);
-            var username = localR.GetString(1);
-            if (remoteByUsername.TryGetValue(username, out var remoteId) && remoteId != localId)
-                remap[localId] = remoteId;
+            var srcId    = srcR.GetGuid(0);
+            var username = srcR.GetString(1);
+            if (dstByUsername.TryGetValue(username, out var dstId) && dstId != srcId)
+                remap[srcId] = dstId;
         }
         return remap;
     }
@@ -701,11 +701,15 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         // lastSyncedAt is kept for conflict detection — only the query filter uses the buffer.
         var safetyFilterSince = lastSyncedAt - PullSafetyBuffer;
 
+        // Build a remap for any remote user UUID whose username already exists locally
+        // under a different UUID. Applied when writing user FKs into the local DB.
+        var userIdRemap = await BuildUserIdRemapAsync(remote, local);
+
         // Process in FK dependency order so referenced rows exist before referencing ones.
         await PullUsersAsync(local, remote);
-        await PullNotesAsync(local, remote, lastSyncedAt, safetyFilterSince, userId);
-        await PullScratchpadsAsync(local, remote, safetyFilterSince);
-        await PullKanbanBoardsAsync(local, remote, safetyFilterSince);
+        await PullNotesAsync(local, remote, lastSyncedAt, safetyFilterSince, userId, userIdRemap);
+        await PullScratchpadsAsync(local, remote, safetyFilterSince, userIdRemap);
+        await PullKanbanBoardsAsync(local, remote, safetyFilterSince, userIdRemap);
         await PullKanbanColumnsAsync(local, remote, safetyFilterSince);
         await PullKanbanCardsAsync(local, remote, safetyFilterSince);
         await PullRemoteDeletesAsync(local, remote, lastSyncedAt);
@@ -740,7 +744,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
 
     private static async Task PullNotesAsync(
         NpgsqlConnection local, NpgsqlConnection remote,
-        DateTimeOffset lastSyncedAt, DateTimeOffset safetyFilterSince, Guid userId)
+        DateTimeOffset lastSyncedAt, DateTimeOffset safetyFilterSince, Guid userId,
+        Dictionary<Guid, Guid> userIdRemap)
     {
         // Fetch notes modified on remote since (lastSyncedAt - PullSafetyBuffer).
         // The privacy filter mirrors the read-path policy: pull public notes from anyone,
@@ -787,7 +792,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
             if (!exists)
             {
                 // Genuinely new on remote → insert.
-                await InsertNoteFromRemoteAsync(local, rn);
+                await InsertNoteFromRemoteAsync(local, rn, userIdRemap);
                 parentIdFixes.Add((rn.Id, rn.ParentId));
             }
             else if (rn.ContentHash == localHash)
@@ -806,7 +811,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                 // If local has changed since then, local wins — skip (next push delivers it).
                 if (localUpdatedAt <= lastSyncedAt.UtcDateTime)
                 {
-                    await UpdateNoteFromRemoteAsync(local, rn);
+                    await UpdateNoteFromRemoteAsync(local, rn, userIdRemap);
                     parentIdFixes.Add((rn.Id, rn.ParentId));
                 }
                 // else: local is newer — no conflict sibling; push will reconcile.
@@ -814,13 +819,13 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
             else if (localUpdatedAt <= lastSyncedAt.UtcDateTime)
             {
                 // Remote is genuinely new, local is unchanged since last sync → update.
-                await UpdateNoteFromRemoteAsync(local, rn);
+                await UpdateNoteFromRemoteAsync(local, rn, userIdRemap);
                 parentIdFixes.Add((rn.Id, rn.ParentId));
             }
             else
             {
                 // Both sides modified since last sync with different content → real conflict.
-                await CreateConflictNoteAsync(local, rn);
+                await CreateConflictNoteAsync(local, rn, userIdRemap);
             }
         }
 
@@ -835,7 +840,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         }
     }
 
-    private static async Task InsertNoteFromRemoteAsync(NpgsqlConnection local, RemoteNote rn)
+    private static async Task InsertNoteFromRemoteAsync(
+        NpgsqlConnection local, RemoteNote rn, Dictionary<Guid, Guid> userIdRemap)
     {
         await using var cmd = new NpgsqlCommand(
             @"INSERT INTO notes
@@ -846,13 +852,13 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                  @ownerId, @createdBy, @isPrivate, @sortOrder, @createdAt, @updatedAt, @deletedAt)
               ON CONFLICT (id) DO NOTHING",
             local);
-        cmd.Parameters.AddWithValue("id", rn.Id);
-        cmd.Parameters.AddWithValue("isRoot", rn.IsRoot);
-        cmd.Parameters.AddWithValue("title", rn.Title);
-        cmd.Parameters.AddWithValue("content", rn.Content);
-        cmd.Parameters.AddWithValue("hash", rn.ContentHash);
-        cmd.Parameters.AddWithValue("ownerId", rn.OwnerId);
-        cmd.Parameters.AddWithValue("createdBy", rn.CreatedBy);
+        cmd.Parameters.AddWithValue("id",        rn.Id);
+        cmd.Parameters.AddWithValue("isRoot",    rn.IsRoot);
+        cmd.Parameters.AddWithValue("title",     rn.Title);
+        cmd.Parameters.AddWithValue("content",   rn.Content);
+        cmd.Parameters.AddWithValue("hash",      rn.ContentHash);
+        cmd.Parameters.AddWithValue("ownerId",   Remap(userIdRemap, rn.OwnerId));
+        cmd.Parameters.AddWithValue("createdBy", Remap(userIdRemap, rn.CreatedBy));
         cmd.Parameters.AddWithValue("isPrivate", rn.IsPrivate);
         cmd.Parameters.AddWithValue("sortOrder", rn.SortOrder);
         cmd.Parameters.AddWithValue("createdAt", rn.CreatedAt);
@@ -861,7 +867,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         await cmd.ExecuteNonQueryAsync();
     }
 
-    private static async Task UpdateNoteFromRemoteAsync(NpgsqlConnection local, RemoteNote rn)
+    private static async Task UpdateNoteFromRemoteAsync(
+        NpgsqlConnection local, RemoteNote rn, Dictionary<Guid, Guid> userIdRemap)
     {
         // parent_id is intentionally excluded — handled by the fix pass in PullNotesAsync.
         // created_at and created_by are immutable and not updated.
@@ -878,12 +885,12 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                 deleted_at   = @deletedAt
               WHERE id = @id",
             local);
-        cmd.Parameters.AddWithValue("id", rn.Id);
-        cmd.Parameters.AddWithValue("isRoot", rn.IsRoot);
-        cmd.Parameters.AddWithValue("title", rn.Title);
-        cmd.Parameters.AddWithValue("content", rn.Content);
-        cmd.Parameters.AddWithValue("hash", rn.ContentHash);
-        cmd.Parameters.AddWithValue("ownerId", rn.OwnerId);
+        cmd.Parameters.AddWithValue("id",        rn.Id);
+        cmd.Parameters.AddWithValue("isRoot",    rn.IsRoot);
+        cmd.Parameters.AddWithValue("title",     rn.Title);
+        cmd.Parameters.AddWithValue("content",   rn.Content);
+        cmd.Parameters.AddWithValue("hash",      rn.ContentHash);
+        cmd.Parameters.AddWithValue("ownerId",   Remap(userIdRemap, rn.OwnerId));
         cmd.Parameters.AddWithValue("isPrivate", rn.IsPrivate);
         cmd.Parameters.AddWithValue("sortOrder", rn.SortOrder);
         cmd.Parameters.AddWithValue("updatedAt", rn.UpdatedAt);
@@ -893,7 +900,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
 
     // Both sides modified: keep the local version, insert the remote version as a
     // [CONFLICT] sibling so the user can manually reconcile.
-    private static async Task CreateConflictNoteAsync(NpgsqlConnection local, RemoteNote rn)
+    private static async Task CreateConflictNoteAsync(
+        NpgsqlConnection local, RemoteNote rn, Dictionary<Guid, Guid> userIdRemap)
     {
         // Read local note's parent_id and sort_order for sibling placement.
         await using var readCmd = new NpgsqlCommand(
@@ -931,11 +939,11 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                 (gen_random_uuid(), @parentId, FALSE, @title, @content, @hash,
                  @ownerId, @ownerId, @isPrivate, @sortOrder, NOW(), NOW())",
             local);
-        cmd.Parameters.AddWithValue("parentId", (object?)parentId ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("title", conflictTitle);
-        cmd.Parameters.AddWithValue("content", rn.Content);
-        cmd.Parameters.AddWithValue("hash", rn.ContentHash);
-        cmd.Parameters.AddWithValue("ownerId", rn.OwnerId);
+        cmd.Parameters.AddWithValue("parentId",  (object?)parentId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("title",     conflictTitle);
+        cmd.Parameters.AddWithValue("content",   rn.Content);
+        cmd.Parameters.AddWithValue("hash",      rn.ContentHash);
+        cmd.Parameters.AddWithValue("ownerId",   Remap(userIdRemap, rn.OwnerId));
         cmd.Parameters.AddWithValue("isPrivate", rn.IsPrivate);
         cmd.Parameters.AddWithValue("sortOrder", sortOrder + 1);
         await cmd.ExecuteNonQueryAsync();
@@ -962,7 +970,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
     // These entities rarely conflict and don't have a natural "sibling" for a conflict copy.
 
     private static async Task PullScratchpadsAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset safetyFilterSince)
+        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset safetyFilterSince,
+        Dictionary<Guid, Guid> userIdRemap)
     {
         await using var cmd = new NpgsqlCommand(
             "SELECT id, user_id, content, content_hash, updated_at FROM scratchpads WHERE updated_at > @since",
@@ -985,17 +994,18 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                     content_hash = EXCLUDED.content_hash,
                     updated_at   = EXCLUDED.updated_at",
                 local);
-            upsert.Parameters.AddWithValue("id", id);
-            upsert.Parameters.AddWithValue("userId", userId);
-            upsert.Parameters.AddWithValue("content", content);
-            upsert.Parameters.AddWithValue("hash", hash);
+            upsert.Parameters.AddWithValue("id",        id);
+            upsert.Parameters.AddWithValue("userId",    Remap(userIdRemap, userId));
+            upsert.Parameters.AddWithValue("content",   content);
+            upsert.Parameters.AddWithValue("hash",      hash);
             upsert.Parameters.AddWithValue("updatedAt", updatedAt);
             await upsert.ExecuteNonQueryAsync();
         }
     }
 
     private static async Task PullKanbanBoardsAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset safetyFilterSince)
+        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset safetyFilterSince,
+        Dictionary<Guid, Guid> userIdRemap)
     {
         await using var cmd = new NpgsqlCommand(
             "SELECT id, title, owner_id, created_at, updated_at, deleted_at FROM kanban_boards WHERE updated_at > @since",
@@ -1018,9 +1028,9 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
                     updated_at = EXCLUDED.updated_at,
                     deleted_at = EXCLUDED.deleted_at",
                 local);
-            upsert.Parameters.AddWithValue("id", id);
-            upsert.Parameters.AddWithValue("title", title);
-            upsert.Parameters.AddWithValue("ownerId", ownerId);
+            upsert.Parameters.AddWithValue("id",        id);
+            upsert.Parameters.AddWithValue("title",     title);
+            upsert.Parameters.AddWithValue("ownerId",   Remap(userIdRemap, ownerId));
             upsert.Parameters.AddWithValue("createdAt", createdAt);
             upsert.Parameters.AddWithValue("updatedAt", updatedAt);
             upsert.Parameters.AddWithValue("deletedAt", (object?)deletedAt ?? DBNull.Value);
