@@ -17,8 +17,7 @@
                 <MenuItem Header="_Manage Notes…"    Click="OnManageClicked" />
                 <MenuItem Header="_Trash…"           Click="OnTrashClicked" />
                 <MenuItem Header="_Import…"           Click="OnImportClicked" />
-                <MenuItem Header="Recover Kanban Notes…" Click="OnKanbanRecoveryClicked" />
-                <MenuItem Header="_Export">
+<MenuItem Header="_Export">
                     <MenuItem Header="Export _Single Note" Click="OnExportSingleNoteClicked" />
                     <MenuItem Header="Export _Subtree"     Click="OnExportSubtreeClicked" />
                 </MenuItem>

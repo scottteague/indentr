@@ -171,10 +171,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnKanbanRecoveryClicked(object? sender, RoutedEventArgs e) =>
-        new KanbanNoteRecoveryWindow().Show();
-
-    private async void OnBackupClicked(object? sender, RoutedEventArgs e)
+private async void OnBackupClicked(object? sender, RoutedEventArgs e)
     {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
