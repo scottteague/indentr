@@ -5,6 +5,8 @@ using Indentr.Core.Interfaces;
 using Indentr.Core.Models;
 using Indentr.Data;
 using Indentr.Data.Repositories;
+using Indentr.Data.Sqlite;
+using Indentr.Data.Sqlite.Repositories;
 using Indentr.UI.Config;
 using Indentr.UI.Views;
 
@@ -63,45 +65,73 @@ public partial class App : Application
 
         CurrentProfile = profile;
 
-        // Build local connection string, scoped to this profile's schema.
-        var schemaName = string.IsNullOrEmpty(profile.LocalSchemaId)
-            ? null
-            : $"indentr_{profile.LocalSchemaId}";
-
-        var cs = ConnectionStringBuilder.Build(
-            profile.Database.Host, profile.Database.Port,
-            profile.Database.Name, profile.Database.Username, profile.Database.Password,
-            schemaName);
-
         string? remoteCs = null;
         if (profile.RemoteDatabase is { } remote)
             remoteCs = ConnectionStringBuilder.Build(
                 remote.Host, remote.Port, remote.Name, remote.Username, remote.Password);
 
-        Notes       = new NoteRepository(cs);
-        Users       = new UserRepository(cs);
-        Scratchpads = new ScratchpadRepository(cs);
-        Attachments = new PostgresAttachmentStore(cs);
-        Kanban      = new KanbanRepository(cs);
-
-        // Migrate schema.
-        try
+        if (profile.Backend == BackendType.SQLite)
         {
-            await new DatabaseMigrator(cs).MigrateAsync(schemaName);
+            // ── SQLite local backend ──────────────────────────────────────────
+            var dbPath = ResolveSqlitePath(profile);
+
+            try
+            {
+                await new SqliteDatabaseMigrator(dbPath).MigrateAsync();
+            }
+            catch (Exception ex)
+            {
+                await MessageBox.ShowError(desktop.MainWindow!,
+                    "Database Error",
+                    $"Could not open or migrate the SQLite database:\n\n{ex.Message}\n\nPath: {dbPath}");
+                desktop.Shutdown();
+                return;
+            }
+
+            Notes       = new SqliteNoteRepository(dbPath);
+            Users       = new SqliteUserRepository(dbPath);
+            Scratchpads = new SqliteScratchpadRepository(dbPath);
+            Attachments = new SqliteAttachmentStore(dbPath);
+            Kanban      = new SqliteKanbanRepository(dbPath);
+
+            CurrentUser = await Users.GetOrCreateAsync(profile.Username);
+            Sync        = new SqliteSyncService(dbPath, remoteCs, CurrentUser.Id);
         }
-        catch (Exception ex)
+        else
         {
-            await MessageBox.ShowError(desktop.MainWindow!,
-                "Database Error",
-                $"Could not connect or migrate the database:\n\n{ex.Message}\n\nPlease check your config at ~/.config/indentr/config.json");
-            desktop.Shutdown();
-            return;
+            // ── PostgreSQL local backend ──────────────────────────────────────
+            var schemaName = string.IsNullOrEmpty(profile.LocalSchemaId)
+                ? null
+                : $"indentr_{profile.LocalSchemaId}";
+
+            var cs = ConnectionStringBuilder.Build(
+                profile.Database.Host, profile.Database.Port,
+                profile.Database.Name, profile.Database.Username, profile.Database.Password,
+                schemaName);
+
+            Notes       = new NoteRepository(cs);
+            Users       = new UserRepository(cs);
+            Scratchpads = new ScratchpadRepository(cs);
+            Attachments = new PostgresAttachmentStore(cs);
+            Kanban      = new KanbanRepository(cs);
+
+            // Migrate schema.
+            try
+            {
+                await new DatabaseMigrator(cs).MigrateAsync(schemaName);
+            }
+            catch (Exception ex)
+            {
+                await MessageBox.ShowError(desktop.MainWindow!,
+                    "Database Error",
+                    $"Could not connect or migrate the database:\n\n{ex.Message}\n\nPlease check your config at ~/.config/indentr/config.json");
+                desktop.Shutdown();
+                return;
+            }
+
+            CurrentUser = await Users.GetOrCreateAsync(profile.Username);
+            Sync        = new SyncService(cs, remoteCs, CurrentUser.Id);
         }
-
-        CurrentUser = await Users.GetOrCreateAsync(profile.Username);
-
-        // SyncService needs the user ID so the pull phase can apply the privacy filter.
-        Sync = new SyncService(cs, remoteCs, CurrentUser.Id);
 
         var recoveries = RecoveryManager.Scan();
         if (recoveries.Count > 0)
@@ -116,5 +146,24 @@ public partial class App : Application
         desktop.MainWindow = mainWindow;
         mainWindow.Show();
         loadingWindow?.Close();
+    }
+
+    /// <summary>Returns the resolved absolute path for a SQLite profile's database file.
+    /// Explicit paths are used as-is; blank paths default to ~/.config/indentr/&lt;schemaId&gt;.db.</summary>
+    internal static string ResolveSqlitePath(DatabaseProfile profile)
+    {
+        if (!string.IsNullOrWhiteSpace(profile.SqliteDbPath))
+            return profile.SqliteDbPath;
+
+        var configDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "indentr");
+        Directory.CreateDirectory(configDir);
+
+        var fileName = string.IsNullOrEmpty(profile.LocalSchemaId)
+            ? $"{profile.Name.ToLowerInvariant()}.db"
+            : $"{profile.LocalSchemaId}.db";
+
+        return Path.Combine(configDir, fileName);
     }
 }

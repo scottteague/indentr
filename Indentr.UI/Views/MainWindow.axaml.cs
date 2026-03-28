@@ -8,6 +8,7 @@ using Indentr.Core.Interfaces;
 using Indentr.Core.Models;
 using Indentr.Data;
 using Indentr.UI.Config;
+using Microsoft.Data.Sqlite;
 
 namespace Indentr.UI.Views;
 
@@ -173,11 +174,49 @@ public partial class MainWindow : Window
 
 private async void OnBackupClicked(object? sender, RoutedEventArgs e)
     {
+        if (App.CurrentProfile.Backend == BackendType.SQLite)
+            await BackupSqliteAsync();
+        else
+            await BackupPostgresAsync();
+    }
+
+    private async Task BackupSqliteAsync()
+    {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "Save Database Backup",
+            Title             = "Save SQLite Backup",
+            SuggestedFileName = $"indentr-backup-{DateTime.Now:yyyy-MM-dd-HHmmss}.db",
+            FileTypeChoices   = [new FilePickerFileType("SQLite database") { Patterns = ["*.db"] }]
+        });
+        if (file is null) return;
+
+        var destPath = file.TryGetLocalPath();
+        if (destPath is null) return;
+
+        var sourcePath = App.ResolveSqlitePath(App.CurrentProfile);
+        try
+        {
+            // VACUUM INTO writes a clean, compacted copy without touching the live db.
+            await using var conn = new SqliteConnection($"Data Source={sourcePath}");
+            await conn.OpenAsync();
+            await using var cmd = new SqliteCommand($"VACUUM INTO '{destPath.Replace("'", "''")}'", conn);
+            await cmd.ExecuteNonQueryAsync();
+
+            await MessageBox.ShowInfo(this, "Backup Complete", $"Database backed up to:\n{destPath}");
+        }
+        catch (Exception ex)
+        {
+            await MessageBox.ShowError(this, "Backup Failed", ex.Message);
+        }
+    }
+
+    private async Task BackupPostgresAsync()
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title             = "Save Database Backup",
             SuggestedFileName = $"indentr-backup-{DateTime.Now:yyyy-MM-dd-HHmmss}.sql",
-            FileTypeChoices = [new FilePickerFileType("SQL dump") { Patterns = ["*.sql"] }]
+            FileTypeChoices   = [new FilePickerFileType("SQL dump") { Patterns = ["*.sql"] }]
         });
         if (file is null) return;
 
@@ -191,11 +230,11 @@ private async void OnBackupClicked(object? sender, RoutedEventArgs e)
             RedirectStandardError = true,
             CreateNoWindow        = true,
         };
-        psi.ArgumentList.Add($"-h"); psi.ArgumentList.Add(db.Host);
-        psi.ArgumentList.Add($"-p"); psi.ArgumentList.Add(db.Port.ToString());
-        psi.ArgumentList.Add($"-U"); psi.ArgumentList.Add(db.Username);
-        psi.ArgumentList.Add($"-d"); psi.ArgumentList.Add(db.Name);
-        psi.ArgumentList.Add($"-f"); psi.ArgumentList.Add(path);
+        psi.ArgumentList.Add("-h"); psi.ArgumentList.Add(db.Host);
+        psi.ArgumentList.Add("-p"); psi.ArgumentList.Add(db.Port.ToString());
+        psi.ArgumentList.Add("-U"); psi.ArgumentList.Add(db.Username);
+        psi.ArgumentList.Add("-d"); psi.ArgumentList.Add(db.Name);
+        psi.ArgumentList.Add("-f"); psi.ArgumentList.Add(path);
         if (!string.IsNullOrEmpty(db.Password))
             psi.Environment["PGPASSWORD"] = db.Password;
 

@@ -23,6 +23,23 @@ public partial class FirstRunWindow : Window
 
         InitializeComponent();
 
+        // Backend type
+        if (profile.Backend == BackendType.SQLite)
+        {
+            SqliteRadio.IsChecked  = true;
+            SqlitePanel.IsVisible  = true;
+            PostgresPanel.IsVisible = false;
+            SqlitePathBox.Text     = profile.SqliteDbPath;
+        }
+        else
+        {
+            PostgresRadio.IsChecked = true;
+            SqlitePanel.IsVisible   = false;
+            PostgresPanel.IsVisible = true;
+        }
+
+        UpdateSqlitePathHint();
+
         if (profile.RemoteDatabase is not null)
         {
             EnableRemoteBox.IsChecked   = true;
@@ -38,7 +55,7 @@ public partial class FirstRunWindow : Window
         {
             Title               = "Add Profile";
             HeadingText.Text    = "Add Profile";
-            SubheadingText.Text = "Choose a name for this profile and configure its database connection.";
+            SubheadingText.Text = "Choose a name for this profile and configure its database.";
             OkButton.Content    = "Add Profile";
         }
         else
@@ -73,6 +90,25 @@ public partial class FirstRunWindow : Window
         return await tcs.Task;
     }
 
+    private void OnBackendTypeChanged(object? sender, RoutedEventArgs e)
+    {
+        var isSqlite = SqliteRadio.IsChecked == true;
+        SqlitePanel.IsVisible   = isSqlite;
+        PostgresPanel.IsVisible = !isSqlite;
+        UpdateSqlitePathHint();
+    }
+
+    private void UpdateSqlitePathHint()
+    {
+        var configDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "indentr");
+        var fileName = string.IsNullOrEmpty(_profile.LocalSchemaId)
+            ? $"{(ProfileNameBox?.Text?.Trim().ToLowerInvariant() ?? "profile")}.db"
+            : $"{_profile.LocalSchemaId}.db";
+        SqlitePathHintText.Text = $"Default: {Path.Combine(configDir, fileName)}";
+    }
+
     private void OnOkClicked(object? sender, RoutedEventArgs e)
     {
         var name = ProfileNameBox.Text?.Trim() ?? "";
@@ -89,10 +125,20 @@ public partial class FirstRunWindow : Window
             return;
         }
 
-        if (!int.TryParse(DbPortBox.Text, out var port) || port < 1 || port > 65535)
+        var isSqlite = SqliteRadio.IsChecked == true;
+
+        if (!isSqlite)
         {
-            ShowError("Port must be a number between 1 and 65535.");
-            return;
+            if (!int.TryParse(DbPortBox.Text, out var port) || port < 1 || port > 65535)
+            {
+                ShowError("Port must be a number between 1 and 65535.");
+                return;
+            }
+            _profile.Database.Host     = DbHostBox.Text?.Trim() ?? "localhost";
+            _profile.Database.Port     = port;
+            _profile.Database.Name     = DbNameBox.Text?.Trim() ?? "indentr";
+            _profile.Database.Username = DbUserBox.Text?.Trim() ?? "postgres";
+            _profile.Database.Password = DbPasswordBox.Text ?? "";
         }
 
         var remotePort = 0;
@@ -103,13 +149,12 @@ public partial class FirstRunWindow : Window
             return;
         }
 
-        _profile.Name              = name;
-        _profile.Username          = username;
-        _profile.Database.Host     = DbHostBox.Text?.Trim() ?? "localhost";
-        _profile.Database.Port     = port;
-        _profile.Database.Name     = DbNameBox.Text?.Trim() ?? "indentr";
-        _profile.Database.Username = DbUserBox.Text?.Trim() ?? "postgres";
-        _profile.Database.Password = DbPasswordBox.Text ?? "";
+        _profile.Name    = name;
+        _profile.Username = username;
+        _profile.Backend  = isSqlite ? BackendType.SQLite : BackendType.PostgreSQL;
+
+        if (isSqlite)
+            _profile.SqliteDbPath = SqlitePathBox.Text?.Trim() ?? "";
 
         if (EnableRemoteBox.IsChecked == true)
         {

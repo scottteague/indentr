@@ -29,6 +29,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Indentr.Core\Indentr.Core.csproj" />
     <ProjectReference Include="..\Indentr.Data\Indentr.Data.csproj" />
+    <ProjectReference Include="..\Indentr.Data.Sqlite\Indentr.Data.Sqlite.csproj" />
   </ItemGroup>
 
 </Project>

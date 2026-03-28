@@ -20,31 +20,52 @@
         <TextBlock Text="Username" FontWeight="SemiBold" Margin="0,4,0,0" />
         <TextBox x:Name="UsernameBox" Watermark="Your Indentr username" />
 
-        <TextBlock Text="Local Database" FontWeight="SemiBold" Margin="0,8,0,0" />
+        <TextBlock Text="Local Storage" FontWeight="SemiBold" Margin="0,8,0,0" />
 
-        <Grid ColumnDefinitions="*,8,80" RowDefinitions="Auto">
-            <TextBox Grid.Column="0" x:Name="DbHostBox" Watermark="Host" />
-            <TextBox Grid.Column="2" x:Name="DbPortBox" Watermark="Port" />
-        </Grid>
+        <StackPanel Orientation="Horizontal" Spacing="16">
+            <RadioButton x:Name="SqliteRadio"   Content="SQLite  (no server needed)"
+                         GroupName="BackendType" IsCheckedChanged="OnBackendTypeChanged" />
+            <RadioButton x:Name="PostgresRadio" Content="PostgreSQL"
+                         GroupName="BackendType" IsCheckedChanged="OnBackendTypeChanged" />
+        </StackPanel>
 
-        <TextBox x:Name="DbNameBox"     Watermark="Database name" />
-        <TextBox x:Name="DbUserBox"     Watermark="PostgreSQL username" />
-        <TextBox x:Name="DbPasswordBox" Watermark="Password (leave blank if none)" PasswordChar="●" />
+        <!-- SQLite panel -->
+        <StackPanel x:Name="SqlitePanel" IsVisible="True" Spacing="6">
+            <TextBlock Text="Database file path" Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                       FontSize="12" />
+            <TextBox x:Name="SqlitePathBox" Watermark="Leave blank to use default location" />
+            <TextBlock x:Name="SqlitePathHintText"
+                       FontSize="11"
+                       Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
 
-        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
-            <Button x:Name="TestLocalConnectionButton"
-                    Content="Test connection"
-                    Click="OnTestLocalConnectionClicked" />
-            <TextBlock x:Name="LocalTestResultText"
-                       VerticalAlignment="Center"
-                       TextWrapping="Wrap"
-                       IsVisible="False" />
+        <!-- PostgreSQL panel -->
+        <StackPanel x:Name="PostgresPanel" IsVisible="False" Spacing="6">
+            <Grid ColumnDefinitions="*,8,80" RowDefinitions="Auto">
+                <TextBox Grid.Column="0" x:Name="DbHostBox" Watermark="Host" />
+                <TextBox Grid.Column="2" x:Name="DbPortBox" Watermark="Port" />
+            </Grid>
+
+            <TextBox x:Name="DbNameBox"     Watermark="Database name" />
+            <TextBox x:Name="DbUserBox"     Watermark="PostgreSQL username" />
+            <TextBox x:Name="DbPasswordBox" Watermark="Password (leave blank if none)" PasswordChar="●" />
+
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
+                <Button x:Name="TestLocalConnectionButton"
+                        Content="Test connection"
+                        Click="OnTestLocalConnectionClicked" />
+                <TextBlock x:Name="LocalTestResultText"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           IsVisible="False" />
+            </StackPanel>
         </StackPanel>
 
         <Separator Margin="0,4,0,0" />
 
         <CheckBox x:Name="EnableRemoteBox"
-                  Content="Enable remote sync database"
+                  Content="Enable remote sync (PostgreSQL)"
                   IsCheckedChanged="OnEnableRemoteChanged" />
 
         <StackPanel x:Name="RemotePanel" IsVisible="False" Spacing="6">
