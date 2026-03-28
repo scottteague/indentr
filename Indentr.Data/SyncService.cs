@@ -117,7 +117,7 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
             await local.OpenAsync();
             await remote.OpenAsync();
             syncStartedAt = await GetRemoteClockAsync(remote);
-            await PullAsync(local, remote, lastSyncedAt, _userId);
+            await PullAsync(local, remote, lastSyncedAt, _userId, _localCs, _remoteCs);
         }
         catch (Exception ex)
         {
@@ -694,7 +694,8 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         DateTime CreatedAt, DateTime UpdatedAt, DateTime? DeletedAt);
 
     private static async Task PullAsync(
-        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset lastSyncedAt, Guid userId)
+        NpgsqlConnection local, NpgsqlConnection remote, DateTimeOffset lastSyncedAt, Guid userId,
+        string localCs, string remoteCs)
     {
         // Shift the pull filter back by PullSafetyBuffer so rows written in the
         // milliseconds around SELECT NOW() are re-checked on each sync cycle.
@@ -713,11 +714,95 @@ public class SyncService(string localConnectionString, string? remoteConnectionS
         // Process in FK dependency order so referenced rows exist before referencing ones.
         await PullUsersAsync(local, remote);
         await PullNotesAsync(local, remote, lastSyncedAt, safetyFilterSince, userId, remoteUserId, userIdRemap);
+        await PullAttachmentsAsync(local, remote, safetyFilterSince, localCs, remoteCs);
         await PullScratchpadsAsync(local, remote, safetyFilterSince, userIdRemap);
         await PullKanbanBoardsAsync(local, remote, safetyFilterSince, userIdRemap);
         await PullKanbanColumnsAsync(local, remote, safetyFilterSince);
         await PullKanbanCardsAsync(local, remote, safetyFilterSince);
         await PullRemoteDeletesAsync(local, remote, lastSyncedAt);
+    }
+
+    // Attachments have no updated_at column (they are immutable once created).
+    // New attachments are detected via created_at; soft-delete propagation is handled
+    // by a separate pass that checks which local-active attachments are now deleted on remote.
+    private static async Task PullAttachmentsAsync(
+        NpgsqlConnection local, NpgsqlConnection remote,
+        DateTimeOffset safetyFilterSince,
+        string localCs, string remoteCs)
+    {
+        // ── New attachments ───────────────────────────────────────────────────
+        // Fetch metadata for attachments created on remote since the last sync window.
+        var newRows = new List<(Guid Id, Guid NoteId)>();
+        await using (var cmd = new NpgsqlCommand(
+            "SELECT id, note_id FROM attachments WHERE created_at > @since",
+            remote))
+        {
+            cmd.Parameters.AddWithValue("since", safetyFilterSince.UtcDateTime);
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                newRows.Add((r.GetGuid(0), r.GetGuid(1)));
+        }
+
+        foreach (var (id, noteId) in newRows)
+        {
+            // Skip if already present locally (idempotent re-pull within the safety buffer).
+            await using var existsCmd = new NpgsqlCommand(
+                "SELECT 1 FROM attachments WHERE id = @id", local);
+            existsCmd.Parameters.AddWithValue("id", id);
+            if (await existsCmd.ExecuteScalarAsync() is not null) continue;
+
+            // Skip if the parent note isn't on this machine yet (FK would fail).
+            // The next sync cycle will pick it up once the note arrives.
+            await using var noteCmd = new NpgsqlCommand(
+                "SELECT 1 FROM notes WHERE id = @id", local);
+            noteCmd.Parameters.AddWithValue("id", noteId);
+            if (await noteCmd.ExecuteScalarAsync() is null) continue;
+
+            try
+            {
+                // UpsertAttachmentAsync(src, dst, id): reads from src, writes to dst.
+                // Passing (remoteCs, localCs) pulls the attachment down to local.
+                await UpsertAttachmentAsync(remoteCs, localCs, id);
+            }
+            catch
+            {
+                // Skip on error — attachment remains absent locally and will be retried
+                // on the next sync cycle (created_at filter will include it again).
+            }
+        }
+
+        // ── Soft-delete propagation ───────────────────────────────────────────
+        // Find local attachments that are still active but have been soft-deleted on remote.
+        var localActiveIds = new List<Guid>();
+        await using (var cmd = new NpgsqlCommand(
+            "SELECT id FROM attachments WHERE deleted_at IS NULL", local))
+        {
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                localActiveIds.Add(r.GetGuid(0));
+        }
+
+        if (localActiveIds.Count == 0) return;
+
+        var remoteDeletedIds = new List<Guid>();
+        await using (var cmd = new NpgsqlCommand(
+            "SELECT id FROM attachments WHERE id = ANY(@ids) AND deleted_at IS NOT NULL",
+            remote))
+        {
+            cmd.Parameters.AddWithValue("ids", localActiveIds.ToArray());
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                remoteDeletedIds.Add(r.GetGuid(0));
+        }
+
+        foreach (var id in remoteDeletedIds)
+        {
+            await using var softDel = new NpgsqlCommand(
+                "UPDATE attachments SET deleted_at = NOW() WHERE id = @id AND deleted_at IS NULL",
+                local);
+            softDel.Parameters.AddWithValue("id", id);
+            await softDel.ExecuteNonQueryAsync();
+        }
     }
 
     // Users have no updated_at column, so we pull all remote users and upsert locally.
