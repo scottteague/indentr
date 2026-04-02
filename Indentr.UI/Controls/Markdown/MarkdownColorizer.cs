@@ -26,9 +26,12 @@ public class MarkdownColorizer(FontFamily monoFamily, FontFamily proportionalFam
     // ── Patterns ─────────────────────────────────────────────────────────────
 
     // More-specific patterns must come before their single-char siblings
-    private static readonly Regex Bold       = new(@"\*\*(.+?)\*\*",                       RegexOptions.Compiled | RegexOptions.Singleline);
-    private static readonly Regex Red        = new(@"__(.+?)__",                           RegexOptions.Compiled | RegexOptions.Singleline);
-    private static readonly Regex Italic     = new(@"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", RegexOptions.Compiled | RegexOptions.Singleline);
+    private static readonly Regex Bold      = new(@"\*\*(.+?)\*\*",                       RegexOptions.Compiled | RegexOptions.Singleline);
+    // Single pattern handles both prefixed (g__text__) and unprefixed (__text__) spans.
+    // Preceding-character guard is applied manually in the loop instead of via a lookbehind,
+    // because the compiled lookbehind was incorrectly matching at position 1 in "g__text__".
+    private static readonly Regex ColorSpan = new(@"([a-z]?)__(.+?)__",                 RegexOptions.Singleline);
+    private static readonly Regex Italic    = new(@"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", RegexOptions.Compiled | RegexOptions.Singleline);
     private static readonly Regex Underline  = new(@"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)",      RegexOptions.Compiled | RegexOptions.Singleline);
     private static readonly Regex Link       = new(@"\[([^\]]*)\]\(([^)]*)\)",             RegexOptions.Compiled);
     private static readonly Regex Heading    = new(@"^(#{1,6}) ",                          RegexOptions.Compiled);
@@ -40,12 +43,38 @@ public class MarkdownColorizer(FontFamily monoFamily, FontFamily proportionalFam
 
     // ── Brushes ───────────────────────────────────────────────────────────────
 
-    private static readonly IBrush RedBrush       = Brushes.Red;
-    private static readonly IBrush NoteLinkBrush  = new SolidColorBrush(Color.FromRgb(100, 175, 255)); // light blue
-    private static readonly IBrush KanbanBrush    = new SolidColorBrush(Color.FromRgb(185, 120, 255)); // light purple
-    private static readonly IBrush ExtLinkBrush   = new SolidColorBrush(Color.FromRgb( 65, 210, 180)); // teal
-    private static readonly IBrush CodeBg     = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128));
-    private static readonly IBrush GreenBrush = new SolidColorBrush(Color.FromRgb(0, 160, 0));
+    private static readonly IBrush NoteLinkBrush  = new SolidColorBrush(Color.FromRgb(100, 175, 255));
+    private static readonly IBrush KanbanBrush    = new SolidColorBrush(Color.FromRgb(185, 120, 255));
+    private static readonly IBrush ExtLinkBrush   = new SolidColorBrush(Color.FromRgb( 65, 210, 180));
+    private static readonly IBrush CodeBg         = new SolidColorBrush(Color.FromArgb(60, 128, 128, 128));
+
+    // Color-span brushes — one static field per color, same pattern as NoteLinkBrush above.
+    private static readonly IBrush BrushRed     = Brushes.Red;
+    private static readonly IBrush BrushGreen   = new SolidColorBrush(Color.FromRgb(  0, 148,   0));
+    private static readonly IBrush BrushBlue    = new SolidColorBrush(Color.FromRgb( 60, 110, 230));
+    private static readonly IBrush BrushOrange  = new SolidColorBrush(Color.FromRgb(210, 110,   0));
+    private static readonly IBrush BrushGold    = new SolidColorBrush(Color.FromRgb(170, 140,   0));
+    private static readonly IBrush BrushPurple  = new SolidColorBrush(Color.FromRgb(150,  40, 210));
+    private static readonly IBrush BrushCyan    = new SolidColorBrush(Color.FromRgb(  0, 155, 175));
+    private static readonly IBrush BrushMagenta = new SolidColorBrush(Color.FromRgb(210,  30, 140));
+    private static readonly IBrush BrushTeal    = new SolidColorBrush(Color.FromRgb(  0, 128, 128));
+    private static readonly IBrush BrushNavy    = new SolidColorBrush(Color.FromRgb( 30,  60, 180));
+    private static readonly IBrush BrushLime    = new SolidColorBrush(Color.FromRgb( 90, 180,   0));
+    private static readonly IBrush BrushAmber   = new SolidColorBrush(Color.FromRgb(195, 130,   0));
+    private static readonly IBrush BrushEmerald = new SolidColorBrush(Color.FromRgb(  0, 165,  90));
+    private static readonly IBrush BrushSky     = new SolidColorBrush(Color.FromRgb( 20, 145, 210));
+    private static readonly IBrush BrushSlate   = new SolidColorBrush(Color.FromRgb(110, 110, 120));
+    private static readonly IBrush BrushWhite   = Brushes.White;
+
+    private static IBrush PrefixBrush(char c) => c switch
+    {
+        'r' => BrushRed,     'g' => BrushGreen,   'b' => BrushBlue,
+        'o' => BrushOrange,  'y' => BrushGold,     'p' => BrushPurple,
+        'c' => BrushCyan,    'm' => BrushMagenta,  't' => BrushTeal,
+        'n' => BrushNavy,    'l' => BrushLime,     'a' => BrushAmber,
+        'e' => BrushEmerald, 's' => BrushSky,      'k' => BrushSlate,
+        'w' => BrushWhite,   _   => BrushRed,
+    };
 
     // Font-size multipliers for H1 … H6 relative to the editor's base size
     private static readonly double[] HeadingScales = { 2.0, 1.6, 1.35, 1.15, 1.05, 1.0 };
@@ -130,8 +159,28 @@ public class MarkdownColorizer(FontFamily monoFamily, FontFamily proportionalFam
             el.TextRunProperties.SetTypeface(new Typeface(tf.FontFamily, tf.Style, FontWeight.Bold));
         });
 
-        Apply(line, text, Red, el =>
-            el.TextRunProperties.SetForegroundBrush(RedBrush));
+        foreach (Match m in ColorSpan.Matches(text))
+        {
+            // Manual lookbehind: skip if the char immediately before the match is a lowercase
+            // letter, which means the prefix letter is part of a word rather than a color tag.
+            if (m.Index > 0 && char.IsAsciiLetterLower(text[m.Index - 1])) continue;
+
+            string prefix = m.Groups[1].Value;
+            IBrush b = prefix.Length > 0 ? PrefixBrush(prefix[0]) : BrushRed;
+            int docStart = line.Offset + m.Index;
+            int docEnd   = line.Offset + m.Index + m.Length + 1;
+            if (prefix.Length > 0)
+            {
+                // Split the call so AvaloniaEdit sees a clean element boundary after the
+                // prefix letter. Without this, the second __ is excluded from the styled run.
+                ChangeLinePart(docStart,     docStart + 1, el => el.TextRunProperties.SetForegroundBrush(b));
+                ChangeLinePart(docStart + 1, docEnd,       el => el.TextRunProperties.SetForegroundBrush(b));
+            }
+            else
+            {
+                ChangeLinePart(docStart, docEnd, el => el.TextRunProperties.SetForegroundBrush(b));
+            }
+        }
 
         Apply(line, text, Italic, el =>
         {
@@ -155,9 +204,9 @@ public class MarkdownColorizer(FontFamily monoFamily, FontFamily proportionalFam
         if (ListLine.IsMatch(text))
         {
             Apply(line, text, CheckboxUnchecked, el =>
-                el.TextRunProperties.SetForegroundBrush(RedBrush));
+                el.TextRunProperties.SetForegroundBrush(BrushRed));
             Apply(line, text, CheckboxChecked, el =>
-                el.TextRunProperties.SetForegroundBrush(GreenBrush));
+                el.TextRunProperties.SetForegroundBrush(BrushGreen));
         }
     }
 

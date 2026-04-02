@@ -7,7 +7,7 @@
         <!-- Toolbar -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="4,4,4,0">
             <Button x:Name="BoldButton"         Content="B"            FontWeight="Bold"   Width="32" ToolTip.Tip="Bold (**text**)"          Click="OnBoldClick" />
-            <Button x:Name="RedButton"          Content="R"            Foreground="Red"    Width="32" ToolTip.Tip="Red (__text__)"            Click="OnRedClick" />
+            <DropDownButton x:Name="ColorButton" Content="R"            Foreground="Red"    Width="48" ToolTip.Tip="Color text — click for red, ▾ for palette" Click="OnRedClick" />
             <Button x:Name="ItalicButton"       Content="I"            FontStyle="Italic"  Width="32" ToolTip.Tip="Italic (*text*)"           Click="OnItalicClick" />
             <Button x:Name="UnderlineButton"    Content="U"            Width="32"          ToolTip.Tip="Underline (_text_)"                  Click="OnUnderlineClick" />
             <Button x:Name="LinkButton"         Content="🔗"           Width="32"          ToolTip.Tip="Insert link"                         Click="OnLinkClick" />

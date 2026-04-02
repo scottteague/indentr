@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Media;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Indentr.Core.Interfaces;
@@ -33,6 +35,32 @@ public partial class NoteEditorControl : UserControl
     /// <summary>Raised by the "+ Note" button. Parent creates the note and calls back with the new note.</summary>
     public event Func<string /*title*/, Guid /*parentNoteId*/, Task<Note?>>? NewChildNoteRequested;
 
+    // Must match the palette in MarkdownColorizer.ColorMap
+    private static readonly (string Prefix, string Name, Color Color)[] ColorPalette =
+    [
+        ("r", "Red",     Color.FromRgb(204,   0,   0)),
+        ("g", "Green",   Color.FromRgb(  0, 148,   0)),
+        ("b", "Blue",    Color.FromRgb( 60, 110, 230)),
+        ("o", "Orange",  Color.FromRgb(210, 110,   0)),
+        ("y", "Gold",    Color.FromRgb(170, 140,   0)),
+        ("p", "Purple",  Color.FromRgb(150,  40, 210)),
+        ("c", "Cyan",    Color.FromRgb(  0, 155, 175)),
+        ("m", "Magenta", Color.FromRgb(210,  30, 140)),
+        ("t", "Teal",    Color.FromRgb(  0, 128, 128)),
+        ("n", "Navy",    Color.FromRgb( 30,  60, 180)),
+        ("l", "Lime",    Color.FromRgb( 90, 180,   0)),
+        ("a", "Amber",   Color.FromRgb(195, 130,   0)),
+        ("e", "Emerald", Color.FromRgb(  0, 165,  90)),
+        ("s", "Sky",     Color.FromRgb( 20, 145, 210)),
+        ("k", "Slate",   Color.FromRgb(110, 110, 120)),
+        ("w", "White",   Color.FromRgb(255, 255, 255)),
+    ];
+
+    // Matches a selection that is already a color span, e.g. "r__text__" or "__text__".
+    // Group 1 = color prefix (may be empty), Group 2 = inner content.
+    private static readonly Regex ColorSpanToggle =
+        new(@"^([a-z]?)__(.+?)__$", RegexOptions.Compiled | RegexOptions.Singleline);
+
     private static readonly Regex LinkPattern =
         new(@"\[([^\]]*)\]\(([^)]*)\)", RegexOptions.Compiled);
 
@@ -45,6 +73,7 @@ public partial class NoteEditorControl : UserControl
     {
         InitializeComponent();
         SetupEditor();
+        ColorButton.Flyout = BuildColorFlyout();
         // Use the tunneling phase so we intercept Enter/Tab before AvaloniaEdit's
         // own input handlers consume them (e.g. Enter inserting a bare newline).
         Editor.TextArea.AddHandler(
@@ -283,8 +312,32 @@ public partial class NoteEditorControl : UserControl
 
     // ── Toolbar button handlers ──────────────────────────────────────────────
 
-    private void OnBoldClick(object? sender, RoutedEventArgs e)      => WrapSelection("**", "**");
-    private void OnRedClick(object? sender, RoutedEventArgs e)       => WrapSelection("__", "__");
+    private void OnBoldClick(object? sender, RoutedEventArgs e) => WrapSelection("**", "**");
+    private void OnRedClick(object? sender, RoutedEventArgs e)  => WrapColorSpan("");
+
+    private Flyout BuildColorFlyout()
+    {
+        var panel = new WrapPanel { MaxWidth = 172 }; // 4 swatches per row
+        foreach (var (prefix, name, color) in ColorPalette)
+        {
+            var p = prefix; // capture for lambda
+            var btn = new Button
+            {
+                Width      = 32,
+                Height     = 32,
+                Margin     = new Thickness(2),
+                Background = new SolidColorBrush(color),
+            };
+            ToolTip.SetTip(btn, name);
+            btn.Click += (_, _) =>
+            {
+                ColorButton.Flyout?.Hide();
+                WrapColorSpan(p);
+            };
+            panel.Children.Add(btn);
+        }
+        return new Flyout { Content = panel };
+    }
     private void OnItalicClick(object? sender, RoutedEventArgs e)    => WrapSelection("*", "*");
     private void OnUnderlineClick(object? sender, RoutedEventArgs e) => WrapSelection("_", "_");
 
@@ -532,6 +585,21 @@ public partial class NoteEditorControl : UserControl
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Wraps the selection in a color span, e.g. "g__text__".
+    /// If the selection is already a color span, strips the old markup first so
+    /// re-clicking a color (or switching colors) never double-wraps the delimiters.
+    /// Clicking the same color again toggles the markup off entirely.
+    /// </summary>
+    private void WrapColorSpan(string colorPrefix)
+    {
+        var selected = Editor.SelectedText;
+        var m = ColorSpanToggle.Match(selected);
+        string inner = m.Success ? m.Groups[2].Value : selected;
+        bool toggleOff = m.Success && m.Groups[1].Value == colorPrefix;
+        ReplaceSelection(toggleOff ? inner : $"{colorPrefix}__{inner}__");
+    }
 
     private void WrapSelection(string prefix, string suffix)
     {
