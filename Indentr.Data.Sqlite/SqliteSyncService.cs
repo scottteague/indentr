@@ -328,7 +328,7 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
                 (id, parent_id, is_root, title, content, content_hash,
                  owner_id, created_by, is_private, sort_order, created_at, updated_at, deleted_at)
               SELECT @id, NULL, @isRoot, @title, @content, @hash,
-                     @ownerId, @createdBy, @isPrivate, @sortOrder, @createdAt, @updatedAt, @deletedAt
+                     @ownerId, @createdBy, @isPrivate, @sortOrder, @createdAt, NOW(), @deletedAt
               WHERE NOT (@isRoot AND EXISTS (
                   SELECT 1 FROM notes WHERE is_root = TRUE AND created_by = @createdBy AND id <> @id
               ))
@@ -340,7 +340,7 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
                 owner_id     = EXCLUDED.owner_id,
                 is_private   = EXCLUDED.is_private,
                 sort_order   = EXCLUDED.sort_order,
-                updated_at   = EXCLUDED.updated_at,
+                updated_at   = NOW(),
                 deleted_at   = EXCLUDED.deleted_at",
             remote);
         upsert.Parameters.AddWithValue("id",        id);
@@ -353,7 +353,6 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
         upsert.Parameters.AddWithValue("isPrivate", row.IsPrivate);
         upsert.Parameters.AddWithValue("sortOrder", row.SortOrder);
         upsert.Parameters.AddWithValue("createdAt", row.CreatedAt);
-        upsert.Parameters.AddWithValue("updatedAt", row.UpdatedAt);
         upsert.Parameters.AddWithValue("deletedAt", (object?)row.DeletedAt ?? DBNull.Value);
         await upsert.ExecuteNonQueryAsync();
     }
