@@ -145,7 +145,6 @@ public partial class KanbanWindow : Window
             Content = cardsPanel,
             VerticalScrollBarVisibility   = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
-            MaxHeight = 460
         };
 
         // ── Add card button ────────────────────────────────────────────────

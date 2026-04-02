@@ -8,6 +8,7 @@ using Avalonia.Platform.Storage;
 using Indentr.Core.Interfaces;
 using Indentr.Core.Models;
 using Indentr.Data;
+using Indentr.UI.Config;
 using Indentr.UI.Controls.Markdown;
 using Indentr.UI.Views;
 
@@ -115,8 +116,29 @@ public partial class NoteEditorControl : UserControl
         Editor.Options.EnableHyperlinks      = false; // we handle links ourselves
         Editor.Options.EnableEmailHyperlinks = false;
 
+        Editor.FontSize = ConfigManager.Load().EditorFontSize;
+
+        Editor.TextArea.AddHandler(
+            InputElement.PointerWheelChangedEvent, OnEditorPointerWheel, RoutingStrategies.Tunnel);
+
         // Attach to TextView so the event isn't swallowed by the TextArea first
         Editor.TextArea.TextView.PointerPressed += OnTextViewPointerPressed;
+    }
+
+    private void OnEditorPointerWheel(object? sender, PointerWheelEventArgs e)
+    {
+        if (!e.KeyModifiers.HasFlag(KeyModifiers.Control)) return;
+        SetEditorFontSize(Editor.FontSize + (e.Delta.Y > 0 ? 1.0 : -1.0));
+        e.Handled = true;
+    }
+
+    private void SetEditorFontSize(double size)
+    {
+        size = Math.Clamp(size, 8.0, 36.0);
+        Editor.FontSize = size;
+        var cfg = ConfigManager.Load();
+        cfg.EditorFontSize = size;
+        ConfigManager.Save(cfg);
     }
 
     // ── Keyboard ─────────────────────────────────────────────────────────────
@@ -127,6 +149,13 @@ public partial class NoteEditorControl : UserControl
         {
             e.Handled = true;
             await DoSave();
+            return;
+        }
+
+        if (e.Key == Key.D0 && e.KeyModifiers == KeyModifiers.Control)
+        {
+            e.Handled = true;
+            SetEditorFontSize(14.0);
             return;
         }
 

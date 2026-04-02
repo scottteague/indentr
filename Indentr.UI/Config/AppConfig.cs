@@ -19,6 +19,7 @@ public class AppConfig
 {
     public string LastProfile { get; set; } = "";
     public List<DatabaseProfile> Profiles { get; set; } = new();
+    public double EditorFontSize { get; set; } = 14.0;
 }
 
 public class DatabaseConfig

@@ -630,9 +630,9 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
         await PullNotesAsync(remote, lastSyncedAt, safetyFilterSince, remoteUserId, userIdRemap);
         await PullAttachmentsAsync(remote, safetyFilterSince);
         await PullScratchpadsAsync(remote, safetyFilterSince, userIdRemap);
-        await PullKanbanBoardsAsync(remote, safetyFilterSince, userIdRemap);
-        await PullKanbanColumnsAsync(remote, safetyFilterSince);
-        await PullKanbanCardsAsync(remote, safetyFilterSince);
+        await PullKanbanBoardsAsync(remote, safetyFilterSince, lastSyncedAt, userIdRemap);
+        await PullKanbanColumnsAsync(remote, safetyFilterSince, lastSyncedAt);
+        await PullKanbanCardsAsync(remote, safetyFilterSince, lastSyncedAt);
         await PullRemoteDeletesAsync(remote, lastSyncedAt);
     }
 
@@ -1088,7 +1088,8 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
     }
 
     private async Task PullKanbanBoardsAsync(
-        NpgsqlConnection remote, DateTimeOffset safetyFilterSince, Dictionary<Guid, Guid> userIdRemap)
+        NpgsqlConnection remote, DateTimeOffset safetyFilterSince, DateTimeOffset lastSyncedAt,
+        Dictionary<Guid, Guid> userIdRemap)
     {
         await using var cmd = new NpgsqlCommand(
             "SELECT id, title, owner_id, created_at, updated_at, deleted_at FROM kanban_boards WHERE updated_at > @since",
@@ -1111,19 +1112,22 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
                   ON CONFLICT(id) DO UPDATE SET
                     title      = EXCLUDED.title,
                     updated_at = EXCLUDED.updated_at,
-                    deleted_at = EXCLUDED.deleted_at",
+                    deleted_at = EXCLUDED.deleted_at
+                  WHERE kanban_boards.updated_at <= @lastSynced",
                 conn);
-            upsert.Parameters.AddWithValue("@id",        id.ToString());
-            upsert.Parameters.AddWithValue("@title",     title);
-            upsert.Parameters.AddWithValue("@ownerId",   Remap(userIdRemap, ownerId).ToString());
-            upsert.Parameters.AddWithValue("@createdAt", SqliteHelper.Iso(createdAt));
-            upsert.Parameters.AddWithValue("@updatedAt", SqliteHelper.Iso(updatedAt));
-            upsert.Parameters.AddWithValue("@deletedAt", SqliteHelper.IsoOrNull(deletedAt));
+            upsert.Parameters.AddWithValue("@id",         id.ToString());
+            upsert.Parameters.AddWithValue("@title",      title);
+            upsert.Parameters.AddWithValue("@ownerId",    Remap(userIdRemap, ownerId).ToString());
+            upsert.Parameters.AddWithValue("@createdAt",  SqliteHelper.Iso(createdAt));
+            upsert.Parameters.AddWithValue("@updatedAt",  SqliteHelper.Iso(updatedAt));
+            upsert.Parameters.AddWithValue("@deletedAt",  SqliteHelper.IsoOrNull(deletedAt));
+            upsert.Parameters.AddWithValue("@lastSynced", SqliteHelper.Iso(lastSyncedAt.UtcDateTime));
             await upsert.ExecuteNonQueryAsync();
         }
     }
 
-    private async Task PullKanbanColumnsAsync(NpgsqlConnection remote, DateTimeOffset safetyFilterSince)
+    private async Task PullKanbanColumnsAsync(
+        NpgsqlConnection remote, DateTimeOffset safetyFilterSince, DateTimeOffset lastSyncedAt)
     {
         await using var cmd = new NpgsqlCommand(
             "SELECT id, board_id, title, sort_order, updated_at, deleted_at FROM kanban_columns WHERE updated_at > @since",
@@ -1150,21 +1154,24 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
                         title      = EXCLUDED.title,
                         sort_order = EXCLUDED.sort_order,
                         updated_at = EXCLUDED.updated_at,
-                        deleted_at = EXCLUDED.deleted_at",
+                        deleted_at = EXCLUDED.deleted_at
+                      WHERE kanban_columns.updated_at <= @lastSynced",
                     conn);
-                upsert.Parameters.AddWithValue("@id",        id.ToString());
-                upsert.Parameters.AddWithValue("@boardId",   boardId.ToString());
-                upsert.Parameters.AddWithValue("@title",     title);
-                upsert.Parameters.AddWithValue("@sortOrder", sortOrder);
-                upsert.Parameters.AddWithValue("@updatedAt", SqliteHelper.Iso(updatedAt));
-                upsert.Parameters.AddWithValue("@deletedAt", SqliteHelper.IsoOrNull(deletedAt));
+                upsert.Parameters.AddWithValue("@id",         id.ToString());
+                upsert.Parameters.AddWithValue("@boardId",    boardId.ToString());
+                upsert.Parameters.AddWithValue("@title",      title);
+                upsert.Parameters.AddWithValue("@sortOrder",  sortOrder);
+                upsert.Parameters.AddWithValue("@updatedAt",  SqliteHelper.Iso(updatedAt));
+                upsert.Parameters.AddWithValue("@deletedAt",  SqliteHelper.IsoOrNull(deletedAt));
+                upsert.Parameters.AddWithValue("@lastSynced", SqliteHelper.Iso(lastSyncedAt.UtcDateTime));
                 await upsert.ExecuteNonQueryAsync();
             }
             catch { /* parent board not yet local — retry next cycle */ }
         }
     }
 
-    private async Task PullKanbanCardsAsync(NpgsqlConnection remote, DateTimeOffset safetyFilterSince)
+    private async Task PullKanbanCardsAsync(
+        NpgsqlConnection remote, DateTimeOffset safetyFilterSince, DateTimeOffset lastSyncedAt)
     {
         await using var cmd = new NpgsqlCommand(
             "SELECT id, column_id, title, note_id, sort_order, created_at, updated_at, deleted_at FROM kanban_cards WHERE updated_at > @since",
@@ -1195,16 +1202,18 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
                         note_id    = EXCLUDED.note_id,
                         sort_order = EXCLUDED.sort_order,
                         updated_at = EXCLUDED.updated_at,
-                        deleted_at = EXCLUDED.deleted_at",
+                        deleted_at = EXCLUDED.deleted_at
+                      WHERE kanban_cards.updated_at <= @lastSynced",
                     conn);
-                upsert.Parameters.AddWithValue("@id",        id.ToString());
-                upsert.Parameters.AddWithValue("@colId",     colId.ToString());
-                upsert.Parameters.AddWithValue("@title",     title);
-                upsert.Parameters.AddWithValue("@noteId",    noteId.HasValue ? noteId.Value.ToString() : DBNull.Value);
-                upsert.Parameters.AddWithValue("@sortOrder", sortOrder);
-                upsert.Parameters.AddWithValue("@createdAt", SqliteHelper.Iso(createdAt));
-                upsert.Parameters.AddWithValue("@updatedAt", SqliteHelper.Iso(updatedAt));
-                upsert.Parameters.AddWithValue("@deletedAt", SqliteHelper.IsoOrNull(deletedAt));
+                upsert.Parameters.AddWithValue("@id",         id.ToString());
+                upsert.Parameters.AddWithValue("@colId",      colId.ToString());
+                upsert.Parameters.AddWithValue("@title",      title);
+                upsert.Parameters.AddWithValue("@noteId",     noteId.HasValue ? noteId.Value.ToString() : DBNull.Value);
+                upsert.Parameters.AddWithValue("@sortOrder",  sortOrder);
+                upsert.Parameters.AddWithValue("@createdAt",  SqliteHelper.Iso(createdAt));
+                upsert.Parameters.AddWithValue("@updatedAt",  SqliteHelper.Iso(updatedAt));
+                upsert.Parameters.AddWithValue("@deletedAt",  SqliteHelper.IsoOrNull(deletedAt));
+                upsert.Parameters.AddWithValue("@lastSynced", SqliteHelper.Iso(lastSyncedAt.UtcDateTime));
                 await upsert.ExecuteNonQueryAsync();
             }
             catch { /* parent column not yet local — retry next cycle */ }

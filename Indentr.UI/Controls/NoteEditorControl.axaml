@@ -51,7 +51,6 @@
         <!-- AvaloniaEdit text editor -->
         <ae:TextEditor x:Name="Editor"
                        FontFamily="Segoe UI,Noto Sans,Liberation Sans,sans-serif"
-                       FontSize="14"
                        WordWrap="True"
                        ShowLineNumbers="False"
                        Margin="6,4,6,4"
