@@ -429,29 +429,27 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
         await using var conn = SqliteHelper.Open(_localDbPath);
         await conn.OpenAsync();
         await using var cmd = new SqliteCommand(
-            "SELECT user_id, content, content_hash, updated_at FROM scratchpads WHERE id = @id", conn);
+            "SELECT user_id, content, content_hash FROM scratchpads WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("@id", id.ToString());
         await using var r = await cmd.ExecuteReaderAsync();
         if (!await r.ReadAsync()) return;
-        var userId    = Guid.Parse(r.GetString(0));
-        var content   = r.GetString(1);
-        var hash      = r.GetString(2);
-        var updatedAt = r.GetDateTime(3);
+        var userId  = Guid.Parse(r.GetString(0));
+        var content = r.GetString(1);
+        var hash    = r.GetString(2);
         await r.CloseAsync();
 
         await using var upsert = new NpgsqlCommand(
             @"INSERT INTO scratchpads (id, user_id, content, content_hash, updated_at)
-              VALUES (@id, @userId, @content, @hash, @updatedAt)
+              VALUES (@id, @userId, @content, @hash, NOW())
               ON CONFLICT (user_id) DO UPDATE SET
                 content      = EXCLUDED.content,
                 content_hash = EXCLUDED.content_hash,
-                updated_at   = EXCLUDED.updated_at",
+                updated_at   = NOW()",
             remote);
-        upsert.Parameters.AddWithValue("id",        id);
-        upsert.Parameters.AddWithValue("userId",    Remap(userIdRemap, userId));
-        upsert.Parameters.AddWithValue("content",   content);
-        upsert.Parameters.AddWithValue("hash",      hash);
-        upsert.Parameters.AddWithValue("updatedAt", updatedAt);
+        upsert.Parameters.AddWithValue("id",      id);
+        upsert.Parameters.AddWithValue("userId",  Remap(userIdRemap, userId));
+        upsert.Parameters.AddWithValue("content", content);
+        upsert.Parameters.AddWithValue("hash",    hash);
         await upsert.ExecuteNonQueryAsync();
     }
 
@@ -461,28 +459,27 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
         await using var conn = SqliteHelper.Open(_localDbPath);
         await conn.OpenAsync();
         await using var cmd = new SqliteCommand(
-            "SELECT title, owner_id, created_at, updated_at, deleted_at FROM kanban_boards WHERE id = @id", conn);
+            "SELECT title, owner_id, created_at, deleted_at FROM kanban_boards WHERE id = @id", conn);
         cmd.Parameters.AddWithValue("@id", id.ToString());
         await using var r = await cmd.ExecuteReaderAsync();
         if (!await r.ReadAsync()) return;
-        var (title, ownerId, createdAt, updatedAt, deletedAt) =
-            (r.GetString(0), Guid.Parse(r.GetString(1)), r.GetDateTime(2), r.GetDateTime(3),
-             r.IsDBNull(4) ? (DateTime?)null : r.GetDateTime(4));
+        var (title, ownerId, createdAt, deletedAt) =
+            (r.GetString(0), Guid.Parse(r.GetString(1)), r.GetDateTime(2),
+             r.IsDBNull(3) ? (DateTime?)null : r.GetDateTime(3));
         await r.CloseAsync();
 
         await using var upsert = new NpgsqlCommand(
             @"INSERT INTO kanban_boards (id, title, owner_id, created_at, updated_at, deleted_at)
-              VALUES (@id, @title, @ownerId, @createdAt, @updatedAt, @deletedAt)
+              VALUES (@id, @title, @ownerId, @createdAt, NOW(), @deletedAt)
               ON CONFLICT (id) DO UPDATE SET
                 title      = EXCLUDED.title,
-                updated_at = EXCLUDED.updated_at,
+                updated_at = NOW(),
                 deleted_at = EXCLUDED.deleted_at",
             remote);
         upsert.Parameters.AddWithValue("id",        id);
         upsert.Parameters.AddWithValue("title",     title);
         upsert.Parameters.AddWithValue("ownerId",   Remap(userIdRemap, ownerId));
         upsert.Parameters.AddWithValue("createdAt", createdAt);
-        upsert.Parameters.AddWithValue("updatedAt", updatedAt);
         upsert.Parameters.AddWithValue("deletedAt", (object?)deletedAt ?? DBNull.Value);
         await upsert.ExecuteNonQueryAsync();
     }
