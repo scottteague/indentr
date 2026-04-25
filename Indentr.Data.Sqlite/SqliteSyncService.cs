@@ -20,6 +20,8 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
     private readonly string? _remoteCs    = remoteCs;
     private readonly Guid    _userId      = userId;
 
+    private readonly SemaphoreSlim _syncLock = new(1, 1);
+
     private record SyncLogEntry(long Id, string EntityType, Guid EntityId, string Operation);
     private record UpsertGroup(string EntityType, Guid EntityId, List<long> SyncLogIds);
 
@@ -64,45 +66,52 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
     public async Task<SyncResult> SyncOnceAsync()
     {
         if (_remoteCs is null) return SyncResult.Offline;
-
         var connectError = await ConnectionStringBuilder.TryConnectAsync(_remoteCs);
         if (connectError is not null) return SyncResult.Offline;
 
+        if (!await _syncLock.WaitAsync(0)) return SyncResult.Offline;
         try
         {
-            await new DatabaseMigrator(_remoteCs).MigrateAsync();
-        }
-        catch (Exception ex)
-        {
-            return SyncResult.Fail($"Remote migration failed: {ex.Message}");
-        }
+            try
+            {
+                await new DatabaseMigrator(_remoteCs).MigrateAsync();
+            }
+            catch (Exception ex)
+            {
+                return SyncResult.Fail($"Remote migration failed: {ex.Message}");
+            }
 
-        try
-        {
-            await PushAsync();
-        }
-        catch (Exception ex)
-        {
-            return SyncResult.Fail($"Push failed: {ex.Message}");
-        }
+            try
+            {
+                await PushAsync();
+            }
+            catch (Exception ex)
+            {
+                return SyncResult.Fail($"Push failed: {ex.Message}");
+            }
 
-        var syncStartedAt = DateTimeOffset.UtcNow;
-        try
-        {
-            var lastSyncedAt = await GetLastSyncedAtAsync();
-            await using var remote = new NpgsqlConnection(_remoteCs);
-            await remote.OpenAsync();
-            syncStartedAt = await GetRemoteClockAsync(remote);
-            await PullAsync(remote, lastSyncedAt);
-        }
-        catch (Exception ex)
-        {
-            return SyncResult.Fail($"Pull failed: {ex.Message}");
-        }
+            var syncStartedAt = DateTimeOffset.UtcNow;
+            try
+            {
+                var lastSyncedAt = await GetLastSyncedAtAsync();
+                await using var remote = new NpgsqlConnection(_remoteCs);
+                await remote.OpenAsync();
+                syncStartedAt = await GetRemoteClockAsync(remote);
+                await PullAsync(remote, lastSyncedAt);
+            }
+            catch (Exception ex)
+            {
+                return SyncResult.Fail($"Pull failed: {ex.Message}");
+            }
 
-        try { await SetLastSyncedAtAsync(syncStartedAt); } catch { /* non-fatal */ }
+            try { await SetLastSyncedAtAsync(syncStartedAt); } catch { /* non-fatal */ }
 
-        return SyncResult.Success;
+            return SyncResult.Success;
+        }
+        finally
+        {
+            _syncLock.Release();
+        }
     }
 
     private static async Task<DateTimeOffset> GetRemoteClockAsync(NpgsqlConnection remote)
@@ -627,8 +636,11 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
         await PullAttachmentsAsync(remote, safetyFilterSince);
         await PullScratchpadsAsync(remote, safetyFilterSince, userIdRemap);
         await PullKanbanBoardsAsync(remote, safetyFilterSince, lastSyncedAt, userIdRemap);
-        await PullKanbanColumnsAsync(remote, safetyFilterSince, lastSyncedAt);
-        await PullKanbanCardsAsync(remote, safetyFilterSince, lastSyncedAt);
+        var skippedCols  = await PullKanbanColumnsAsync(remote, safetyFilterSince, lastSyncedAt);
+        var skippedCards = await PullKanbanCardsAsync(remote, safetyFilterSince, lastSyncedAt);
+        // Single retry pass: columns first (boards already pulled), then cards.
+        await RetryKanbanColumnsAsync(skippedCols, lastSyncedAt);
+        await RetryKanbanCardsAsync(skippedCards, lastSyncedAt);
         await PullRemoteDeletesAsync(remote, lastSyncedAt);
     }
 
@@ -1122,7 +1134,8 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
         }
     }
 
-    private async Task PullKanbanColumnsAsync(
+    private async Task<List<(Guid Id, Guid BoardId, string Title, int SortOrder, DateTime UpdatedAt, DateTime? DeletedAt)>>
+        PullKanbanColumnsAsync(
         NpgsqlConnection remote, DateTimeOffset safetyFilterSince, DateTimeOffset lastSyncedAt)
     {
         await using var cmd = new NpgsqlCommand(
@@ -1136,6 +1149,7 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
                       r.IsDBNull(5) ? null : r.GetDateTime(5)));
         await r.CloseAsync();
 
+        var skipped = new List<(Guid, Guid, string, int, DateTime, DateTime?)>();
         await using var conn = SqliteHelper.Open(_localDbPath);
         await conn.OpenAsync();
         foreach (var (id, boardId, title, sortOrder, updatedAt, deletedAt) in rows)
@@ -1162,11 +1176,48 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
                 upsert.Parameters.AddWithValue("@lastSynced", SqliteHelper.Iso(lastSyncedAt.UtcDateTime));
                 await upsert.ExecuteNonQueryAsync();
             }
-            catch { /* parent board not yet local — retry next cycle */ }
+            catch { skipped.Add((id, boardId, title, sortOrder, updatedAt, deletedAt)); }
+        }
+        return skipped;
+    }
+
+    private async Task RetryKanbanColumnsAsync(
+        List<(Guid Id, Guid BoardId, string Title, int SortOrder, DateTime UpdatedAt, DateTime? DeletedAt)> rows,
+        DateTimeOffset lastSyncedAt)
+    {
+        if (rows.Count == 0) return;
+        await using var conn = SqliteHelper.Open(_localDbPath);
+        await conn.OpenAsync();
+        foreach (var (id, boardId, title, sortOrder, updatedAt, deletedAt) in rows)
+        {
+            try
+            {
+                await using var upsert = new SqliteCommand(
+                    @"INSERT INTO kanban_columns (id, board_id, title, sort_order, updated_at, deleted_at)
+                      VALUES (@id, @boardId, @title, @sortOrder, @updatedAt, @deletedAt)
+                      ON CONFLICT(id) DO UPDATE SET
+                        board_id   = EXCLUDED.board_id,
+                        title      = EXCLUDED.title,
+                        sort_order = EXCLUDED.sort_order,
+                        updated_at = EXCLUDED.updated_at,
+                        deleted_at = EXCLUDED.deleted_at
+                      WHERE kanban_columns.updated_at <= @lastSynced",
+                    conn);
+                upsert.Parameters.AddWithValue("@id",         id.ToString());
+                upsert.Parameters.AddWithValue("@boardId",    boardId.ToString());
+                upsert.Parameters.AddWithValue("@title",      title);
+                upsert.Parameters.AddWithValue("@sortOrder",  sortOrder);
+                upsert.Parameters.AddWithValue("@updatedAt",  SqliteHelper.Iso(updatedAt));
+                upsert.Parameters.AddWithValue("@deletedAt",  SqliteHelper.IsoOrNull(deletedAt));
+                upsert.Parameters.AddWithValue("@lastSynced", SqliteHelper.Iso(lastSyncedAt.UtcDateTime));
+                await upsert.ExecuteNonQueryAsync();
+            }
+            catch { /* genuinely unresolvable this cycle */ }
         }
     }
 
-    private async Task PullKanbanCardsAsync(
+    private async Task<List<(Guid Id, Guid ColId, string Title, Guid? NoteId, int SortOrder, DateTime CreatedAt, DateTime UpdatedAt, DateTime? DeletedAt)>>
+        PullKanbanCardsAsync(
         NpgsqlConnection remote, DateTimeOffset safetyFilterSince, DateTimeOffset lastSyncedAt)
     {
         await using var cmd = new NpgsqlCommand(
@@ -1182,6 +1233,7 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
                       r.IsDBNull(7) ? null : r.GetDateTime(7)));
         await r.CloseAsync();
 
+        var skipped = new List<(Guid, Guid, string, Guid?, int, DateTime, DateTime, DateTime?)>();
         await using var conn = SqliteHelper.Open(_localDbPath);
         await conn.OpenAsync();
         foreach (var (id, colId, title, noteId, sortOrder, createdAt, updatedAt, deletedAt) in rows)
@@ -1212,7 +1264,47 @@ public class SqliteSyncService(string localDbPath, string? remoteCs, Guid userId
                 upsert.Parameters.AddWithValue("@lastSynced", SqliteHelper.Iso(lastSyncedAt.UtcDateTime));
                 await upsert.ExecuteNonQueryAsync();
             }
-            catch { /* parent column not yet local — retry next cycle */ }
+            catch { skipped.Add((id, colId, title, noteId, sortOrder, createdAt, updatedAt, deletedAt)); }
+        }
+        return skipped;
+    }
+
+    private async Task RetryKanbanCardsAsync(
+        List<(Guid Id, Guid ColId, string Title, Guid? NoteId, int SortOrder, DateTime CreatedAt, DateTime UpdatedAt, DateTime? DeletedAt)> rows,
+        DateTimeOffset lastSyncedAt)
+    {
+        if (rows.Count == 0) return;
+        await using var conn = SqliteHelper.Open(_localDbPath);
+        await conn.OpenAsync();
+        foreach (var (id, colId, title, noteId, sortOrder, createdAt, updatedAt, deletedAt) in rows)
+        {
+            try
+            {
+                await using var upsert = new SqliteCommand(
+                    @"INSERT INTO kanban_cards
+                        (id, column_id, title, note_id, sort_order, created_at, updated_at, deleted_at)
+                      VALUES (@id, @colId, @title, @noteId, @sortOrder, @createdAt, @updatedAt, @deletedAt)
+                      ON CONFLICT(id) DO UPDATE SET
+                        column_id  = EXCLUDED.column_id,
+                        title      = EXCLUDED.title,
+                        note_id    = EXCLUDED.note_id,
+                        sort_order = EXCLUDED.sort_order,
+                        updated_at = EXCLUDED.updated_at,
+                        deleted_at = EXCLUDED.deleted_at
+                      WHERE kanban_cards.updated_at <= @lastSynced",
+                    conn);
+                upsert.Parameters.AddWithValue("@id",         id.ToString());
+                upsert.Parameters.AddWithValue("@colId",      colId.ToString());
+                upsert.Parameters.AddWithValue("@title",      title);
+                upsert.Parameters.AddWithValue("@noteId",     noteId.HasValue ? noteId.Value.ToString() : DBNull.Value);
+                upsert.Parameters.AddWithValue("@sortOrder",  sortOrder);
+                upsert.Parameters.AddWithValue("@createdAt",  SqliteHelper.Iso(createdAt));
+                upsert.Parameters.AddWithValue("@updatedAt",  SqliteHelper.Iso(updatedAt));
+                upsert.Parameters.AddWithValue("@deletedAt",  SqliteHelper.IsoOrNull(deletedAt));
+                upsert.Parameters.AddWithValue("@lastSynced", SqliteHelper.Iso(lastSyncedAt.UtcDateTime));
+                await upsert.ExecuteNonQueryAsync();
+            }
+            catch { /* genuinely unresolvable this cycle */ }
         }
     }
 
