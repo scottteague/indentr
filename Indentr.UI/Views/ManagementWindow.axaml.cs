@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Indentr.Core.Interfaces;
 using Indentr.Core.Models;
@@ -201,7 +202,7 @@ public partial class ManagementWindow : Window
         var link = $"[{_selectedSharedNode.Title}](note:{_selectedSharedNode.Id})";
         var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
         if (clipboard is not null)
-            await clipboard.SetTextAsync(link);
+            await ClipboardExtensions.SetTextAsync(clipboard, link);
     }
 
     private async void OnSharedNodeDoubleTapped(object? sender, Avalonia.Input.TappedEventArgs e)

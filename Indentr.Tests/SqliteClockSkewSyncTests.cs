@@ -48,7 +48,7 @@ public class SqliteClockSkewSyncTests : IAsyncLifetime
 
     // ── xUnit lifecycle ───────────────────────────────────────────────────────
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         _pg = new PostgreSqlBuilder("postgres:16-alpine").Build();
         await _pg.StartAsync();
@@ -61,7 +61,7 @@ public class SqliteClockSkewSyncTests : IAsyncLifetime
             ("id", (object)_userId), ("u", _username));
     }
 
-    public async Task DisposeAsync() => await _pg.DisposeAsync();
+    public async ValueTask DisposeAsync() => await _pg.DisposeAsync();
 
     // ── Tests ─────────────────────────────────────────────────────────────────
 

@@ -24,7 +24,7 @@ public class DbFixture : IAsyncLifetime
     public IAttachmentStore   Attachments { get; private set; } = null!;
     public User               TestUser    { get; private set; } = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         await _container.StartAsync();
         var cs = _container.GetConnectionString();
@@ -35,7 +35,7 @@ public class DbFixture : IAsyncLifetime
         TestUser    = await new UserRepository(cs).GetOrCreateAsync("testuser");
     }
 
-    public async Task DisposeAsync() => await _container.DisposeAsync();
+    public async ValueTask DisposeAsync() => await _container.DisposeAsync();
 }
 
 [Collection(nameof(DbCollection))]

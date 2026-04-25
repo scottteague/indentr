@@ -15,7 +15,7 @@ public class SqliteDbFixture : IAsyncLifetime
     public IAttachmentStore  Attachments { get; private set; } = null!;
     public User              TestUser    { get; private set; } = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         _dbPath = Path.Combine(Path.GetTempPath(), $"indentr_test_{Guid.NewGuid():N}.db");
         await new SqliteDatabaseMigrator(_dbPath).MigrateAsync();
@@ -26,11 +26,11 @@ public class SqliteDbFixture : IAsyncLifetime
         TestUser    = await new SqliteUserRepository(_dbPath).GetOrCreateAsync("testuser");
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         if (File.Exists(_dbPath))
             File.Delete(_dbPath);
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 }
 
