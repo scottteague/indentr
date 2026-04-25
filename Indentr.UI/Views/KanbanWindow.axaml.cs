@@ -90,7 +90,7 @@ public partial class KanbanWindow : Window
         {
             Text        = col.Title,
             FontWeight  = FontWeight.SemiBold,
-            Watermark   = "Column title",
+            PlaceholderText = "Column title",
             Margin      = new Thickness(0, 0, 4, 0)
         };
         _colTitleBoxes.Add((col, titleBox));

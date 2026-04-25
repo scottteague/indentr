@@ -38,7 +38,7 @@ app.MapGet("/api/attachments/{id:guid}", async (Guid id) =>
 
     var cs = ConnectionStringBuilder.Build(
         profile.Database.Host, profile.Database.Port, profile.Database.Name,
-        profile.Database.Username, profile.Database.Password, schemaName);
+        profile.Database.Username, profile.Database.Password);
 
     var store = new PostgresAttachmentStore(cs);
     var result = await store.OpenReadAsync(id);
@@ -60,7 +60,7 @@ app.MapGet("/api/export/{noteId:guid}", async (Guid noteId) =>
 
     var cs = ConnectionStringBuilder.Build(
         profile.Database.Host, profile.Database.Port, profile.Database.Name,
-        profile.Database.Username, profile.Database.Password, schemaName);
+        profile.Database.Username, profile.Database.Password);
 
     var noteRepo    = new NoteRepository(cs);
     var kanbanRepo  = new KanbanRepository(cs);

@@ -6,7 +6,7 @@ public class DatabaseProfile
 {
     public string Name           { get; set; } = "";
     public string Username       { get; set; } = "";
-    public string LocalSchemaId  { get; set; } = "";   // empty = legacy public schema
+    //public string LocalSchemaId  { get; set; } = "";   // we should no longer need this
     public BackendType Backend   { get; set; } = BackendType.PostgreSQL;
     /// <summary>Path to the SQLite database file. Used when Backend == SQLite.</summary>
     public string SqliteDbPath   { get; set; } = "";

@@ -18,9 +18,6 @@ public partial class FirstRunWindow : Window
     {
         _profile = profile;
 
-        if (isNew && string.IsNullOrEmpty(_profile.LocalSchemaId))
-            _profile.LocalSchemaId = Guid.NewGuid().ToString("N");
-
         InitializeComponent();
 
         // Backend type
@@ -103,9 +100,7 @@ public partial class FirstRunWindow : Window
         var configDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "indentr");
-        var fileName = string.IsNullOrEmpty(_profile.LocalSchemaId)
-            ? $"{(ProfileNameBox?.Text?.Trim().ToLowerInvariant() ?? "profile")}.db"
-            : $"{_profile.LocalSchemaId}.db";
+        var fileName = $"{(ProfileNameBox?.Text?.Trim().ToLowerInvariant() ?? "profile")}.db";
         SqlitePathHintText.Text = $"Default: {Path.Combine(configDir, fileName)}";
     }
 

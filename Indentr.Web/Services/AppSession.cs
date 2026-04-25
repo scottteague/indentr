@@ -36,10 +36,9 @@ public sealed class AppSession : IAsyncDisposable
 
             var cs = ConnectionStringBuilder.Build(
                 profile.Database.Host, profile.Database.Port,
-                profile.Database.Name, profile.Database.Username, profile.Database.Password,
-                schemaName);
+                profile.Database.Name, profile.Database.Username, profile.Database.Password);
 
-            await new DatabaseMigrator(cs).MigrateAsync(schemaName);
+            await new DatabaseMigrator(cs).MigrateAsync();
 
             Notes       = new NoteRepository(cs);
             Kanban      = new KanbanRepository(cs);

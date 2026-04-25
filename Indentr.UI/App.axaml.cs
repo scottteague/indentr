@@ -42,8 +42,8 @@ public partial class App : Application
         var config = ConfigManager.Load();
 
         DatabaseProfile? profile;
-
-        if (config.Profiles.Count == 1)
+        int profileCount = config.Profiles.Count;
+        if (profileCount == 1)
         {
             // Exactly one profile — use it directly, no picker needed.
             profile             = config.Profiles[0];
@@ -100,14 +100,13 @@ public partial class App : Application
         else
         {
             // ── PostgreSQL local backend ──────────────────────────────────────
-            var schemaName = string.IsNullOrEmpty(profile.LocalSchemaId)
-                ? null
-                : $"indentr_{profile.LocalSchemaId}";
+            //var schemaName = string.IsNullOrEmpty(profile.LocalSchemaId)
+            //    ? null
+            //    : $"indentr_{profile.LocalSchemaId}";
 
             var cs = ConnectionStringBuilder.Build(
                 profile.Database.Host, profile.Database.Port,
-                profile.Database.Name, profile.Database.Username, profile.Database.Password,
-                schemaName);
+                profile.Database.Name, profile.Database.Username, profile.Database.Password);
 
             Notes       = new NoteRepository(cs);
             Users       = new UserRepository(cs);
@@ -118,7 +117,7 @@ public partial class App : Application
             // Migrate schema.
             try
             {
-                await new DatabaseMigrator(cs).MigrateAsync(schemaName);
+                await new DatabaseMigrator(cs).MigrateAsync();
             }
             catch (Exception ex)
             {
@@ -160,9 +159,7 @@ public partial class App : Application
             "indentr");
         Directory.CreateDirectory(configDir);
 
-        var fileName = string.IsNullOrEmpty(profile.LocalSchemaId)
-            ? $"{profile.Name.ToLowerInvariant()}.db"
-            : $"{profile.LocalSchemaId}.db";
+        var fileName = $"{profile.Name.ToLowerInvariant()}.db";
 
         return Path.Combine(configDir, fileName);
     }
