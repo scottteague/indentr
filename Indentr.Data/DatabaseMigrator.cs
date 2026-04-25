@@ -4,19 +4,10 @@ namespace Indentr.Data;
 
 public class DatabaseMigrator(string connectionString)
 {
-    public async Task MigrateAsync(string? schemaName = null)
+    public async Task MigrateAsync()
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
-
-        if (schemaName is not null)
-        {
-            // Schema name is always "indentr_" + 32 hex chars — no injection risk,
-            // but still use quoted identifier for correctness.
-            await using var cmd = new NpgsqlCommand(
-                $"CREATE SCHEMA IF NOT EXISTS \"{schemaName}\"", conn);
-            await cmd.ExecuteNonQueryAsync();
-        }
 
         int currentVersion = await GetCurrentVersionAsync(conn);
 

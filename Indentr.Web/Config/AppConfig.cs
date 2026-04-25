@@ -4,7 +4,6 @@ public class DatabaseProfile
 {
     public string Name           { get; set; } = "";
     public string Username       { get; set; } = "";
-    public string LocalSchemaId  { get; set; } = "";
     public DatabaseConfig  Database       { get; set; } = new();
 }
 

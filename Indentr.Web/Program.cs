@@ -32,10 +32,6 @@ app.MapGet("/api/attachments/{id:guid}", async (Guid id) =>
     var profile = ConfigManager.Load().Profiles.FirstOrDefault();
     if (profile is null) return Results.NotFound();
 
-    var schemaName = string.IsNullOrEmpty(profile.LocalSchemaId)
-        ? null
-        : $"indentr_{profile.LocalSchemaId}";
-
     var cs = ConnectionStringBuilder.Build(
         profile.Database.Host, profile.Database.Port, profile.Database.Name,
         profile.Database.Username, profile.Database.Password);
@@ -53,10 +49,6 @@ app.MapGet("/api/export/{noteId:guid}", async (Guid noteId) =>
 {
     var profile = ConfigManager.Load().Profiles.FirstOrDefault();
     if (profile is null) return Results.NotFound();
-
-    var schemaName = string.IsNullOrEmpty(profile.LocalSchemaId)
-        ? null
-        : $"indentr_{profile.LocalSchemaId}";
 
     var cs = ConnectionStringBuilder.Build(
         profile.Database.Host, profile.Database.Port, profile.Database.Name,

@@ -30,10 +30,6 @@ public sealed class AppSession : IAsyncDisposable
         {
             CurrentProfile = profile;
 
-            var schemaName = string.IsNullOrEmpty(profile.LocalSchemaId)
-                ? null
-                : $"indentr_{profile.LocalSchemaId}";
-
             var cs = ConnectionStringBuilder.Build(
                 profile.Database.Host, profile.Database.Port,
                 profile.Database.Name, profile.Database.Username, profile.Database.Password);
