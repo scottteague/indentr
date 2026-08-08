@@ -76,7 +76,7 @@ public partial class ManagementWindow : Window
             $"Move \"{_selectedOrphan.Title}\" to Trash?\nThe note can be restored from Trash.");
         if (!ok) return;
 
-        await App.Notes.DeleteAsync(_selectedOrphan.Id);
+        await App.Notes.DeleteAsync(_selectedOrphan.Id, App.CurrentUser.Id);
         await LoadOrphansAsync();
     }
 
@@ -243,7 +243,7 @@ public partial class ManagementWindow : Window
         parent.Content += separator + link;
         parent.OwnerId  = App.CurrentUser.Id;
 
-        var result = await App.Notes.SaveAsync(parent, parent.ContentHash);
+        var result = await App.Notes.SaveAsync(parent, parent.ContentHash, App.CurrentUser.Id);
         if (result == SaveResult.Conflict)
         {
             await MessageBox.ShowError(this, "Conflict",

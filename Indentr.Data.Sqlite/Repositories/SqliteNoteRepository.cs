@@ -141,20 +141,26 @@ public class SqliteNoteRepository(string dbPath) : INoteRepository
         return note;
     }
 
-    public async Task<SaveResult> SaveAsync(Note note, string originalHash)
+    public async Task<SaveResult> SaveAsync(Note note, string originalHash, Guid userId)
     {
         await using var conn = SqliteHelper.Open(dbPath);
         await conn.OpenAsync();
 
         await using var check = new SqliteCommand(
-            "SELECT content_hash, parent_id, content FROM notes WHERE id = @id", conn);
+            "SELECT content_hash, parent_id, content, created_by, is_private FROM notes WHERE id = @id", conn);
         check.Parameters.AddWithValue("@id", note.Id.ToString());
         await using var cr = await check.ExecuteReaderAsync();
         if (!await cr.ReadAsync()) return SaveResult.Success;
 
         var storedHash = cr.GetString(0);
         var oldContent = cr.GetString(2);
+        var createdBy  = cr.GetGuid(3);
+        var isPrivate  = cr.GetBool(4);
         await cr.CloseAsync();
+
+        // Private notes can only be saved by their creator.
+        if (isPrivate && createdBy != userId)
+            return SaveResult.Unauthorized;
 
         bool conflict = storedHash != originalHash;
         if (conflict)
@@ -190,14 +196,15 @@ public class SqliteNoteRepository(string dbPath) : INoteRepository
         return conflict ? SaveResult.Conflict : SaveResult.Success;
     }
 
-    public async Task DeleteAsync(Guid id)
+    public async Task DeleteAsync(Guid id, Guid userId)
     {
         await using var conn = SqliteHelper.Open(dbPath);
         await conn.OpenAsync();
         await using var cmd = new SqliteCommand(
-            "UPDATE notes SET deleted_at = @now, updated_at = @now WHERE id = @id", conn);
+            "UPDATE notes SET deleted_at = @now, updated_at = @now WHERE id = @id AND created_by = @uid", conn);
         cmd.Parameters.AddWithValue("@now", SqliteHelper.UtcNow());
         cmd.Parameters.AddWithValue("@id",  id.ToString());
+        cmd.Parameters.AddWithValue("@uid", userId.ToString());
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -216,23 +223,26 @@ public class SqliteNoteRepository(string dbPath) : INoteRepository
         return await ReadNotes(cmd);
     }
 
-    public async Task RestoreAsync(Guid id)
+    public async Task RestoreAsync(Guid id, Guid userId)
     {
         await using var conn = SqliteHelper.Open(dbPath);
         await conn.OpenAsync();
         await using var cmd = new SqliteCommand(
-            "UPDATE notes SET deleted_at = NULL, updated_at = @now WHERE id = @id", conn);
+            "UPDATE notes SET deleted_at = NULL, updated_at = @now WHERE id = @id AND created_by = @uid", conn);
         cmd.Parameters.AddWithValue("@now", SqliteHelper.UtcNow());
         cmd.Parameters.AddWithValue("@id",  id.ToString());
+        cmd.Parameters.AddWithValue("@uid", userId.ToString());
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task PermanentlyDeleteAsync(Guid id)
+    public async Task PermanentlyDeleteAsync(Guid id, Guid userId)
     {
         await using var conn = SqliteHelper.Open(dbPath);
         await conn.OpenAsync();
-        await using var cmd = new SqliteCommand("DELETE FROM notes WHERE id = @id", conn);
-        cmd.Parameters.AddWithValue("@id", id.ToString());
+        await using var cmd = new SqliteCommand(
+            "DELETE FROM notes WHERE id = @id AND created_by = @uid", conn);
+        cmd.Parameters.AddWithValue("@id",  id.ToString());
+        cmd.Parameters.AddWithValue("@uid", userId.ToString());
         await cmd.ExecuteNonQueryAsync();
     }
 

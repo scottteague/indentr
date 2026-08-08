@@ -140,14 +140,14 @@ public class NoteRepository(string connectionString) : INoteRepository
         return note;
     }
 
-    public async Task<SaveResult> SaveAsync(Note note, string originalHash)
+    public async Task<SaveResult> SaveAsync(Note note, string originalHash, Guid userId)
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
 
         // Read current state
         await using var checkCmd = new NpgsqlCommand(
-            "SELECT content_hash, parent_id, content FROM notes WHERE id = @id", conn);
+            "SELECT content_hash, parent_id, content, created_by, is_private FROM notes WHERE id = @id", conn);
         checkCmd.Parameters.AddWithValue("id", note.Id);
         await using var checkReader = await checkCmd.ExecuteReaderAsync();
         if (!await checkReader.ReadAsync()) return SaveResult.Success;
@@ -155,7 +155,13 @@ public class NoteRepository(string connectionString) : INoteRepository
         string storedHash = checkReader.GetString(0);
         Guid?  parentId   = checkReader.IsDBNull(1) ? null : checkReader.GetGuid(1);
         string oldContent = checkReader.GetString(2);
+        Guid   createdBy  = checkReader.GetGuid(3);
+        bool   isPrivate  = checkReader.GetBoolean(4);
         await checkReader.CloseAsync();
+
+        // Private notes can only be saved by their creator.
+        if (isPrivate && createdBy != userId)
+            return SaveResult.Unauthorized;
 
         bool conflict = storedHash != originalHash;
         if (conflict)
@@ -195,13 +201,14 @@ public class NoteRepository(string connectionString) : INoteRepository
         return conflict ? SaveResult.Conflict : SaveResult.Success;
     }
 
-    public async Task DeleteAsync(Guid id)
+    public async Task DeleteAsync(Guid id, Guid userId)
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "UPDATE notes SET deleted_at = NOW(), updated_at = NOW() WHERE id = @id", conn);
+            "UPDATE notes SET deleted_at = NOW(), updated_at = NOW() WHERE id = @id AND created_by = @userId", conn);
         cmd.Parameters.AddWithValue("id", id);
+        cmd.Parameters.AddWithValue("userId", userId);
         await cmd.ExecuteNonQueryAsync();
     }
 
@@ -219,23 +226,26 @@ public class NoteRepository(string connectionString) : INoteRepository
         return await ReadNotes(cmd);
     }
 
-    public async Task RestoreAsync(Guid id)
+    public async Task RestoreAsync(Guid id, Guid userId)
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "UPDATE notes SET deleted_at = NULL, updated_at = NOW() WHERE id = @id", conn);
+            "UPDATE notes SET deleted_at = NULL, updated_at = NOW() WHERE id = @id AND created_by = @userId", conn);
         cmd.Parameters.AddWithValue("id", id);
+        cmd.Parameters.AddWithValue("userId", userId);
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task PermanentlyDeleteAsync(Guid id)
+    public async Task PermanentlyDeleteAsync(Guid id, Guid userId)
     {
         await using var conn = new NpgsqlConnection(connectionString);
         await conn.OpenAsync();
         // Attachments cascade via DB FK; trg_attachment_lo_cleanup handles LO unlink.
-        await using var cmd = new NpgsqlCommand("DELETE FROM notes WHERE id = @id", conn);
+        await using var cmd = new NpgsqlCommand(
+            "DELETE FROM notes WHERE id = @id AND created_by = @userId", conn);
         cmd.Parameters.AddWithValue("id", id);
+        cmd.Parameters.AddWithValue("userId", userId);
         await cmd.ExecuteNonQueryAsync();
     }
 

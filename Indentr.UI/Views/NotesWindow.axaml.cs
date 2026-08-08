@@ -97,7 +97,13 @@ public partial class NotesWindow : Window
             RecoveryManager.WriteNote(_note.Id, title, content);
             try
             {
-                var result = await App.Notes.SaveAsync(_note, originalHash);
+                var result = await App.Notes.SaveAsync(_note, originalHash, App.CurrentUser.Id);
+                if (result == SaveResult.Unauthorized)
+                {
+                    await MessageBox.ShowError(null, "Access Denied",
+                        "This note is private and belongs to another user. Your edits were not saved.");
+                    return result;
+                }
                 if (result == SaveResult.Success || result == SaveResult.Conflict)
                 {
                     RecoveryManager.Delete($"note-{_note.Id}.json");
@@ -149,7 +155,7 @@ public partial class NotesWindow : Window
 
         _deleted = true;
         _closing = true; // skip save
-        await App.Notes.DeleteAsync(_note.Id);
+        await App.Notes.DeleteAsync(_note.Id, App.CurrentUser.Id);
         Close();
     }
 

@@ -261,7 +261,7 @@ else
 
     private async Task MoveToTrashAsync()
     {
-        if (_note is null || Session.Notes is null) return;
+        if (_note is null || Session.Notes is null || Session.CurrentUser is null) return;
         var ok = await JS.InvokeAsync<bool>("confirm", $"Move \"{_note.Title}\" to Trash?");
         if (!ok) return;
 
@@ -269,7 +269,7 @@ else
         StateHasChanged();
         try
         {
-            await Session.Notes.DeleteAsync(NoteId);
+            await Session.Notes.DeleteAsync(NoteId, Session.CurrentUser.Id);
             Notifier.NotifyChanged(NoteId);
             Nav.NavigateTo("/");
         }
@@ -327,7 +327,13 @@ else
             _isDirty = false;
 
             var originalHash = _note.ContentHash;
-            var result = await Session.Notes.SaveAsync(_note, originalHash);
+            var result = await Session.Notes.SaveAsync(_note, originalHash, Session.CurrentUser.Id);
+
+            if (result == SaveResult.Unauthorized)
+            {
+                _conflictMessage = "Access denied — this note is private and belongs to another user.";
+                return;
+            }
 
             if (result == SaveResult.Conflict)
             {
@@ -521,7 +527,7 @@ else
             try
             {
                 _note.Content = _currentContent;
-                await Session.Notes.SaveAsync(_note, _note.ContentHash);
+                await Session.Notes.SaveAsync(_note, _note.ContentHash, Session.CurrentUser.Id);
             }
             catch { }
         }

@@ -156,7 +156,7 @@ public static class SubtreeImporter
                 if (note is not null)
                 {
                     note.Content = newContent;
-                    await notes.SaveAsync(note, note.ContentHash);
+                    await notes.SaveAsync(note, note.ContentHash, userId);
                 }
             }
         }

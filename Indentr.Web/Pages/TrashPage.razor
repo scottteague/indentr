@@ -52,11 +52,11 @@
 
     private async Task RestoreAsync(Guid id)
     {
-        if (Session.Notes is null) return;
+        if (Session.Notes is null || Session.CurrentUser is null) return;
         _busy = true;
         try
         {
-            await Session.Notes.RestoreAsync(id);
+            await Session.Notes.RestoreAsync(id, Session.CurrentUser.Id);
             await LoadAsync();
         }
         finally { _busy = false; }
@@ -69,11 +69,11 @@
             $"Permanently delete \"{note?.Title ?? "this note"}\"? This cannot be undone.");
         if (!ok) return;
 
-        if (Session.Notes is null) return;
+        if (Session.Notes is null || Session.CurrentUser is null) return;
         _busy = true;
         try
         {
-            await Session.Notes.PermanentlyDeleteAsync(id);
+            await Session.Notes.PermanentlyDeleteAsync(id, Session.CurrentUser.Id);
             await LoadAsync();
         }
         finally { _busy = false; }
@@ -86,12 +86,12 @@
             $"Permanently delete all {_notes.Count} trashed note(s)? This cannot be undone.");
         if (!ok) return;
 
-        if (Session.Notes is null) return;
+        if (Session.Notes is null || Session.CurrentUser is null) return;
         _busy = true;
         try
         {
             foreach (var note in _notes.ToList())
-                await Session.Notes.PermanentlyDeleteAsync(note.Id);
+                await Session.Notes.PermanentlyDeleteAsync(note.Id, Session.CurrentUser.Id);
             await LoadAsync();
         }
         finally { _busy = false; }

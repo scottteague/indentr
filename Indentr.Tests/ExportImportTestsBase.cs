@@ -3,6 +3,7 @@ using System.Text;
 using Indentr.Core.Interfaces;
 using Indentr.Core.Models;
 using Indentr.Data;
+using Xunit;
 
 namespace Indentr.Tests;
 
@@ -71,7 +72,7 @@ public abstract class ExportImportTestsBase
 
         var parentFresh = await Notes.GetByIdAsync(parent.Id);
         parentFresh!.Content = $"Intro [Child Note](note:{child.Id})";
-        await Notes.SaveAsync(parentFresh, parentFresh.ContentHash);
+        await Notes.SaveAsync(parentFresh, parentFresh.ContentHash, TestUser.Id);
 
         var dir    = TempDir();
         var folder = await SubtreeExporter.ExportAsync(
@@ -96,7 +97,7 @@ public abstract class ExportImportTestsBase
 
         var aWithLink = await Notes.GetByIdAsync(noteA.Id);
         aWithLink!.Content = $"See [Note B](note:{noteB.Id})";
-        await Notes.SaveAsync(aWithLink, aWithLink.ContentHash);
+        await Notes.SaveAsync(aWithLink, aWithLink.ContentHash, TestUser.Id);
 
         var dir    = TempDir();
         var folder = await SubtreeExporter.ExportAsync(
@@ -125,7 +126,7 @@ public abstract class ExportImportTestsBase
         await Kanban.AddCardAsync(col.Id, "Task 2");
 
         note.Content = $"Board: [My Board](kanban:{board.Id})";
-        await Notes.SaveAsync(note, note.ContentHash);
+        await Notes.SaveAsync(note, note.ContentHash, TestUser.Id);
 
         var dir    = TempDir();
         var folder = await SubtreeExporter.ExportAsync(
@@ -139,7 +140,7 @@ public abstract class ExportImportTestsBase
         var boardFiles = Directory.GetFiles(Path.Combine(folder, "boards"), "*.json");
         Assert.Single(boardFiles);
 
-        var boardJson = await File.ReadAllTextAsync(boardFiles[0]);
+        var boardJson = await File.ReadAllTextAsync(boardFiles[0], TestContext.Current.CancellationToken);
         Assert.Contains("My Board", boardJson);
         Assert.Contains("To Do",    boardJson);
         Assert.Contains("Task 1",   boardJson);
@@ -174,7 +175,7 @@ public abstract class ExportImportTestsBase
         Assert.NotNull(opened);
         await using var stream = opened!.Value.Content;
         var importedBytes = new MemoryStream();
-        await stream.CopyToAsync(importedBytes);
+        await stream.CopyToAsync(importedBytes, TestContext.Current.CancellationToken);
         Assert.Equal(originalBytes, importedBytes.ToArray());
     }
 
@@ -184,13 +185,13 @@ public abstract class ExportImportTestsBase
         var root  = await MakeNote("Manifest Root", "");
         var child = await MakeNote("Manifest Child", "", root.Id);
         root.Content = $"[Manifest Child](note:{child.Id})";
-        await Notes.SaveAsync(root, root.ContentHash);
+        await Notes.SaveAsync(root, root.ContentHash, TestUser.Id);
 
         var dir    = TempDir();
         var folder = await SubtreeExporter.ExportAsync(
             Notes, Kanban, Attachments, root.Id, TestUser.Id, dir);
 
-        var manifestJson = await File.ReadAllTextAsync(Path.Combine(folder, "manifest.json"));
+        var manifestJson = await File.ReadAllTextAsync(Path.Combine(folder, "manifest.json"), TestContext.Current.CancellationToken);
         using var doc    = System.Text.Json.JsonDocument.Parse(manifestJson);
         var el           = doc.RootElement;
 

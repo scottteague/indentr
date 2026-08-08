@@ -3,6 +3,7 @@ using Npgsql;
 using Testcontainers.PostgreSql;
 using Indentr.Data;
 using Indentr.Data.Sqlite;
+using Xunit;
 
 namespace Indentr.Tests;
 
@@ -94,7 +95,7 @@ public class SqliteClockSkewSyncTests : IAsyncLifetime
             // ── Seed Machine A ────────────────────────────────────────────────
             await using (var c = OpenLocal(machineADb))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(TestContext.Current.CancellationToken);
                 // Insert a root note so the FK on notes is satisfied if needed,
                 // and seed the board with the backdated timestamp.
                 await LiteExec(c,
@@ -116,7 +117,7 @@ public class SqliteClockSkewSyncTests : IAsyncLifetime
                 await using var cmd = new NpgsqlCommand(
                     "SELECT updated_at FROM kanban_boards WHERE id = @id", conn);
                 cmd.Parameters.AddWithValue("id", boardId);
-                var remoteUpdatedAt = await cmd.ExecuteScalarAsync();
+                var remoteUpdatedAt = await cmd.ExecuteScalarAsync(TestContext.Current.CancellationToken);
                 Assert.True(remoteUpdatedAt is not null,
                     "Board was not pushed to remote at all — push sanity check failed.");
             }
@@ -131,11 +132,11 @@ public class SqliteClockSkewSyncTests : IAsyncLifetime
             // ── Assert ────────────────────────────────────────────────────────
             await using (var c = OpenLocal(machineBDb))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(TestContext.Current.CancellationToken);
                 await using var cmd = new SqliteCommand(
                     "SELECT COUNT(*) FROM kanban_boards WHERE id = @id", c);
                 cmd.Parameters.AddWithValue("@id", boardId.ToString());
-                var count = (long)(await cmd.ExecuteScalarAsync())!;
+                var count = (long)(await cmd.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
                 Assert.Equal(1, count); // FAILS with bug, passes after fix
             }
         }
@@ -188,7 +189,7 @@ public class SqliteClockSkewSyncTests : IAsyncLifetime
             //    then simulate a local edit (new title, backdated updated_at).
             await using (var c = OpenLocal(machineADb))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(TestContext.Current.CancellationToken);
                 var oldTs = Iso(DateTime.UtcNow.AddHours(-2));
                 await LiteExec(c,
                     "INSERT INTO kanban_boards (id, title, owner_id, created_at, updated_at) " +
@@ -221,14 +222,14 @@ public class SqliteClockSkewSyncTests : IAsyncLifetime
                 await using var cmd = new NpgsqlCommand(
                     "SELECT title FROM kanban_cards WHERE id = @id", conn);
                 cmd.Parameters.AddWithValue("id", cardId);
-                var title = (string?)await cmd.ExecuteScalarAsync();
+                var title = (string?)await cmd.ExecuteScalarAsync(TestContext.Current.CancellationToken);
                 Assert.Equal("Edited Title", title);
             }
 
             // ── Seed Machine B with the old card (as if previously synced before A's edit) ─
             await using (var c = OpenLocal(machineBDb))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(TestContext.Current.CancellationToken);
                 var oldTs = Iso(DateTime.UtcNow.AddHours(-2));
                 await LiteExec(c,
                     "INSERT INTO kanban_boards (id, title, owner_id, created_at, updated_at) " +
@@ -255,11 +256,11 @@ public class SqliteClockSkewSyncTests : IAsyncLifetime
             // ── Assert ────────────────────────────────────────────────────────
             await using (var c = OpenLocal(machineBDb))
             {
-                await c.OpenAsync();
+                await c.OpenAsync(TestContext.Current.CancellationToken);
                 await using var cmd = new SqliteCommand(
                     "SELECT title FROM kanban_cards WHERE id = @id", c);
                 cmd.Parameters.AddWithValue("@id", cardId.ToString());
-                var title = (string?)await cmd.ExecuteScalarAsync();
+                var title = (string?)await cmd.ExecuteScalarAsync(TestContext.Current.CancellationToken);
                 Assert.Equal("Edited Title", title); // FAILS with bug, passes after fix
             }
         }

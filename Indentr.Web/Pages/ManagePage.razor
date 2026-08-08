@@ -263,7 +263,7 @@
             var separator = fresh.Content.Length > 0 && !fresh.Content.EndsWith('\n') ? "\n" : "";
             fresh.Content += $"{separator}[{orphan.Title}](note:{orphan.Id})";
 
-            await Session.Notes.SaveAsync(fresh, fresh.ContentHash);
+            await Session.Notes.SaveAsync(fresh, fresh.ContentHash, Session.CurrentUser.Id);
             Notifier.NotifyChanged(parentId);
             await LoadAsync();
         }

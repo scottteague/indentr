@@ -11,7 +11,7 @@ Indentr is a note-taking application inspired by [Tomboy Notes](https://wiki.gno
 | Language    | C# / .NET 10                      |
 | UI          | Avalonia 11 / Avalonia.AvaloniaEdit |
 | Database    | PostgreSQL                        |
-| Auth Model  | Trust-based (no login, user self-identifies) |
+| Auth Model  | Trust-based identity (no login); authorization enforced at the repository layer (see [Authorization & Security](#authorization--security)) |
 
 ---
 
@@ -250,6 +250,7 @@ Large object cleanup is handled by the `trg_attachment_lo_cleanup` trigger (`BEF
 | `id`         | `UUID` PK          | Auto-generated. |
 | `title`      | `TEXT`             | Board display name. |
 | `owner_id`   | `UUID` FK          | References `users.id`. `ON DELETE CASCADE`. |
+| `is_private` | `BOOLEAN`          | When TRUE, only `owner_id` can view or modify. Default: FALSE. |
 | `created_at` | `TIMESTAMPTZ`      | Row creation time. |
 | `updated_at` | `TIMESTAMPTZ`      | Last modification time. |
 | `deleted_at` | `TIMESTAMPTZ NULL` | Non-null when in the Trash. |
@@ -472,6 +473,8 @@ Task DeleteAsync(Guid attachmentId);
 
 Current implementation: `PostgresAttachmentStore` in `Indentr.Data`.
 
+Attachment operations are scoped to the caller's user ID and the parent note's privacy: `OpenReadAsync` and `ListForNoteAsync` only return attachments whose parent note is either public or created by the caller; `DeleteAsync` and `StoreAsync` are blocked for notes the caller cannot write. The web `/api/attachments/{id}` endpoint is auth-gated and performs the same check. See [Authorization & Security](#authorization--security).
+
 ---
 
 ## Kanban Boards
@@ -521,6 +524,8 @@ Each column panel contains an editable title, a scrollable card list, a **× del
 
 Sort order is maintained as an integer `sort_order` column. After any move, the affected column(s) are fully renumbered in a batch update. Cards reference notes via a nullable `note_id` FK with `ON DELETE SET NULL`.
 
+Boards carry an `is_private` flag mirroring the note privacy model (added by a migration; see [Authorization & Security](#authorization--security)). Public boards are visible and editable by all users (wiki-style); private boards are visible and editable only by their creator. Board mutations (rename, delete, add/move column or card) are restricted to the board's creator via `owner_id = @userId` checks in `KanbanRepository`.
+
 ---
 
 ## Configuration File
@@ -550,6 +555,22 @@ Stored at `~/.config/indentr/config.json`. Created automatically on first launch
 ```
 
 `lastProfile` records the most recently used profile so it can be pre-selected on next launch. `localSchemaId` scopes the PostgreSQL search path to `indentr_<id>`, allowing multiple profiles to share a single PostgreSQL database without table conflicts.
+
+### Credential Storage
+
+Database passwords (local and remote) are **not stored in `config.json`**. Instead they are kept in the operating-system credential store:
+
+| Platform | Backend |
+|----------|---------|
+| Windows  | DPAPI (CurrentUser scope) via `System.Security.Cryptography.ProtectedData` |
+| Linux    | Secret Service (GNOME Keyring / KDE Wallet) via the Freedesktop DBus API |
+| macOS    | Keychain (generic password item, service = `indentr`, account = profile name) |
+
+`config.json` stores only a non-secret key reference (profile name) that the `ConfigManager` uses to look up the real password from the keyring at startup. If the keyring is unavailable (e.g. headless Linux without a Secret Service daemon), the app falls back to prompting for the password on each launch.
+
+### TLS
+
+Database connections use `SslMode=Require` whenever the host is not `localhost`, `127.0.0.1`, or `::1`. Local connections remain unencrypted to match the default docker-compose trust-auth setup. The `ConnectionStringBuilder` applies this rule automatically; remote profiles that do not support TLS will fail to connect.
 
 ### Legacy Migration
 
@@ -601,6 +622,8 @@ Trust-based, no authentication.
 3. If the username does not exist in the `users` table, a new row is created automatically on startup.
 4. Different profiles can use different usernames, allowing a single install to act as different identities against different databases.
 
+Identity is trust-based, but **authorization is enforced at the repository layer** for all write operations. See [Authorization & Security](#authorization--security) for the full policy.
+
 ---
 
 ## Note Deletion Behavior
@@ -621,6 +644,52 @@ The Management Form's "Insert Link in Parent Note" works by appending a real tex
 
 ---
 
+## Authorization & Security
+
+Identity in Indentr is trust-based (no passwords, no login — see [User Identification](#user-identification)), but **authorization is enforced at the repository layer** on every write operation, and secrets/TLS are handled as described below. This section documents the policy that the `TODO.md` critical items implement.
+
+### Note Write Authorization
+
+| Operation               | Public note (created by another user) | Private note (created by another user) | Own note (any privacy) |
+|-------------------------|---------------------------------------|----------------------------------------|------------------------|
+| `SaveAsync`             | Allowed (wiki-style; `owner_id` flips to editor) | **Blocked** — returns `SaveResult.Unauthorized` | Allowed |
+| `DeleteAsync`           | **Blocked** (creator-only)            | **Blocked** (creator-only)             | Allowed |
+| `RestoreAsync`          | **Blocked** (creator-only)            | **Blocked** (creator-only)             | Allowed |
+| `PermanentlyDeleteAsync`| **Blocked** (creator-only)            | **Blocked** (creator-only)             | Allowed |
+
+Delete/restore/permanent-delete enforce `WHERE created_by = @userId` in the SQL, so a non-creator call is a silent no-op (no row affected). `SaveAsync` reads `created_by` and `is_private` first; if the note is private and `created_by != userId`, it returns `SaveResult.Unauthorized` without writing. All repository methods now take a `Guid userId` parameter; the UI/Web layers pass `App.CurrentUser.Id` / `Session.CurrentUser.Id`.
+
+### Kanban Authorization
+
+Boards carry an `is_private` flag (added by migration) mirroring notes. Mutations on boards, columns, and cards (rename, delete, add, move, set-card-note) are restricted to the board's creator via `owner_id = @userId` checks in `KanbanRepository`. Read visibility follows the same `is_private = FALSE OR owner_id = @userId` rule as notes.
+
+### Attachment Authorization
+
+`IAttachmentStore` operations are scoped to the caller and the parent note's privacy:
+- `OpenReadAsync` / `ListForNoteAsync`: only return attachments whose parent note is public or created by the caller.
+- `StoreAsync` / `DeleteAsync`: blocked when the parent note is private and not created by the caller.
+
+### Web Endpoint Authorization
+
+The web API endpoints under `/api/` require the caller to be identified via the `AppSession` (the configured profile user). In addition:
+
+| Endpoint                     | Check |
+|------------------------------|-------|
+| `/api/attachments/{id:guid}` | Attachment's parent note must be public or created by the session user. Returns 404 otherwise (no information leak). |
+| `/api/export/{noteId:guid}`  | Root note of the export must be public or created by the session user. Private descendants of a public root are filtered out by `GetSubtreeAsync`. Returns 404 otherwise. |
+
+These checks run server-side regardless of any client-side gating.
+
+### Credential Storage at Rest
+
+Database passwords are stored in the OS credential store (DPAPI on Windows, Secret Service on Linux, Keychain on macOS) — never in `config.json`. See [Configuration File → Credential Storage](#credential-storage).
+
+### Transport Security (TLS)
+
+Remote database connections use `SslMode=Require`. Local connections (`localhost`, `127.0.0.1`, `::1`) remain unencrypted. See [Configuration File → TLS](#tls).
+
+---
+
 ## Per-User Roots and Privacy
 
 ### Per-User Root Notes
@@ -634,9 +703,13 @@ Each user gets their own personal root note on first login. Identified by `is_ro
 | `created_by` | Immutable creator of the note. |
 | `is_private` | When TRUE, only `created_by` can view or edit. Default: FALSE. |
 
-Visibility is enforced in:
-- `GetChildrenAsync`, `GetOrphansAsync`, `SearchAsync`: SQL filters by `is_private = FALSE OR created_by = @userId`.
+**Read visibility** is enforced in:
+- `GetChildrenAsync`, `GetOrphansAsync`, `SearchAsync`, `GetSubtreeAsync`, `GetTrashedAsync`: SQL filters by `is_private = FALSE OR created_by = @userId`.
 - `NotesWindow.OpenAsync`: hard block — opening another user's private note shows an error.
+
+**Write authorization** is enforced in the repository layer (see [Authorization & Security](#authorization--security)):
+- `SaveAsync`: private notes can only be saved by their creator (`created_by = @userId`); attempting to save another user's private note returns `SaveResult.Unauthorized`. Public notes remain editable by any user (wiki-style collaboration); the save flips `owner_id` to the editor.
+- `DeleteAsync`, `RestoreAsync`, `PermanentlyDeleteAsync`: creator-only for all notes (public and private). The SQL includes `WHERE created_by = @userId`, so a non-creator call is a silent no-op.
 
 A **Public** checkbox appears in the NoteEditorControl toolbar for all regular notes (hidden for root and scratchpad). Unchecking makes the note private on the next save.
 

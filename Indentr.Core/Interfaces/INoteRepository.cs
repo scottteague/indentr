@@ -2,7 +2,7 @@ using Indentr.Core.Models;
 
 namespace Indentr.Core.Interfaces;
 
-public enum SaveResult { Success, Conflict, Error }
+public enum SaveResult { Success, Conflict, Unauthorized, Error }
 
 public interface INoteRepository
 {
@@ -12,11 +12,11 @@ public interface INoteRepository
     Task<IEnumerable<Note>> GetOrphansAsync(Guid userId);
     Task<IEnumerable<Note>> SearchAsync(string query, Guid userId);
     Task<Note> CreateAsync(Note note);
-    Task<SaveResult> SaveAsync(Note note, string originalHash);
-    Task DeleteAsync(Guid id);
+    Task<SaveResult> SaveAsync(Note note, string originalHash, Guid userId);
+    Task DeleteAsync(Guid id, Guid userId);
     Task<IEnumerable<Note>> GetTrashedAsync(Guid userId);
-    Task RestoreAsync(Guid id);
-    Task PermanentlyDeleteAsync(Guid id);
+    Task RestoreAsync(Guid id, Guid userId);
+    Task PermanentlyDeleteAsync(Guid id, Guid userId);
     Task EnsureRootExistsAsync(Guid ownerId);
     /// <summary>Returns the root note and all descendants (flat list), privacy-filtered.</summary>
     Task<IReadOnlyList<Note>> GetSubtreeAsync(Guid rootId, Guid userId);

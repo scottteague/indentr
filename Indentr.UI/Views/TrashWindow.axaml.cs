@@ -155,7 +155,7 @@ public partial class TrashWindow : Window
     private async void OnRestoreClicked(object? sender, RoutedEventArgs e)
     {
         if (_selectedNote is not null)
-            await App.Notes.RestoreAsync(_selectedNote.Id);
+            await App.Notes.RestoreAsync(_selectedNote.Id, App.CurrentUser.Id);
         else if (_selectedBoard is not null)
             await App.Kanban.RestoreBoardAsync(_selectedBoard.Id);
         else if (_selectedColumn is not null)
@@ -182,7 +182,7 @@ public partial class TrashWindow : Window
         if (!confirmed) return;
 
         if (_selectedNote is not null)
-            await App.Notes.PermanentlyDeleteAsync(_selectedNote.Id);
+            await App.Notes.PermanentlyDeleteAsync(_selectedNote.Id, App.CurrentUser.Id);
         else if (_selectedBoard is not null)
             await App.Kanban.PermanentlyDeleteBoardAsync(_selectedBoard.Id);
         else if (_selectedColumn is not null)
@@ -206,7 +206,7 @@ public partial class TrashWindow : Window
         foreach (var c in _cards)   await App.Kanban.PermanentlyDeleteCardAsync(c.Id);
         foreach (var c in _columns) await App.Kanban.PermanentlyDeleteColumnAsync(c.Id);
         foreach (var b in _boards)  await App.Kanban.PermanentlyDeleteBoardAsync(b.Id);
-        foreach (var n in _notes)   await App.Notes.PermanentlyDeleteAsync(n.Id);
+        foreach (var n in _notes)   await App.Notes.PermanentlyDeleteAsync(n.Id, App.CurrentUser.Id);
 
         await LoadAsync();
     }

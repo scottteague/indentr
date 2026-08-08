@@ -81,7 +81,7 @@ public partial class MainWindow : Window
                 try
                 {
                     // Root note privacy is not user-configurable; always public.
-                    var result = await App.Notes.SaveAsync(_rootNote, hash);
+                    var result = await App.Notes.SaveAsync(_rootNote, hash, App.CurrentUser.Id);
                     if (result == SaveResult.Success)
                     {
                         RecoveryManager.Delete($"note-{_rootNote.Id}.json");

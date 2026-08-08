@@ -101,7 +101,7 @@ public partial class RecoveryWindow : Window
                 {
                     note.Title   = entry.Title;
                     note.Content = entry.Content;
-                    await App.Notes.SaveAsync(note, note.ContentHash);
+                    await App.Notes.SaveAsync(note, note.ContentHash, App.CurrentUser.Id);
                 }
                 else
                 {
