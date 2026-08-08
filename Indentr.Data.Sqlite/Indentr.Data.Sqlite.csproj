@@ -7,6 +7,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.7" />
+    <!-- Override the 2.1.11 bundle brought in by Microsoft.Data.Sqlite to drop the
+         vulnerable SQLite <3.50.2 native lib (CVE-2025-6965). -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageReference Include="Npgsql" Version="10.0.2" />
   </ItemGroup>
 
