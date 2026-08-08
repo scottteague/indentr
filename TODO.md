@@ -17,7 +17,7 @@ should be fixed before treating the app as genuinely multi-user-safe.
   - `NoteRepository.DeleteAsync` / `PermanentlyDeleteAsync` (`Indentr.Data/Repositories/NoteRepository.cs:198-206,232-240`) take only a note ID — any user can trash/hard-delete any note by UUID.
   - `NoteRepository.SaveAsync` (`:143-196`) lets any user save over another user's public note and flips `owner_id` without checking the caller is authorized to edit.
   - `NoteRepository.RestoreAsync` (`:222-230`) takes only `id` — any user can restore another user's trashed note.
-- [ ] Auth-gate and privacy-check the web endpoints (`Indentr.Web/Program.cs:30-89`):
+- [x] Auth-gate and privacy-check the web endpoints (`Indentr.Web/Program.cs:30-89`):
   - `/api/attachments/{id:guid}` returns any attachment by UUID to anyone, regardless of parent note privacy.
   - `/api/export/{noteId:guid}` runs the subtree export as the configured profile user and can leak that user's private notes to anyone who guesses a UUID.
 - [ ] Add user/ownership scoping to `KanbanRepository` (`Indentr.Data/Repositories/KanbanRepository.cs`). Boards/cards have no `is_private` equivalent and no user checks on update/delete/add/move — effectively public and mutable by all.

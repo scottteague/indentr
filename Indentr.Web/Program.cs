@@ -36,9 +36,18 @@ app.MapGet("/api/attachments/{id:guid}", async (Guid id) =>
         profile.Database.Host, profile.Database.Port, profile.Database.Name,
         profile.Database.Username, profile.Database.Password);
 
-    var store = new PostgresAttachmentStore(cs);
+    var store     = new PostgresAttachmentStore(cs);
+    var noteRepo  = new NoteRepository(cs);
+    var userRepo  = new UserRepository(cs);
+    var user      = await userRepo.GetOrCreateAsync(profile.Username);
+
     var result = await store.OpenReadAsync(id);
     if (result is null) return Results.NotFound();
+
+    // Privacy check: the parent note must be public or created by the session user.
+    var note = await noteRepo.GetByIdAsync(result.Value.Meta.NoteId);
+    if (note is null) return Results.NotFound();
+    if (note.IsPrivate && note.CreatedBy != user.Id) return Results.NotFound();
 
     var (meta, stream) = result.Value;
     return Results.File(stream, meta.MimeType, meta.Filename);
@@ -59,6 +68,11 @@ app.MapGet("/api/export/{noteId:guid}", async (Guid noteId) =>
     var attachStore = new PostgresAttachmentStore(cs);
     var userRepo    = new UserRepository(cs);
     var user        = await userRepo.GetOrCreateAsync(profile.Username);
+
+    // Privacy check: the root note must be public or created by the session user.
+    var rootNote = await noteRepo.GetByIdAsync(noteId);
+    if (rootNote is null) return Results.NotFound();
+    if (rootNote.IsPrivate && rootNote.CreatedBy != user.Id) return Results.NotFound();
 
     var tempBase = Path.Combine(Path.GetTempPath(), $"indentr-export-{Guid.NewGuid():N}");
     Directory.CreateDirectory(tempBase);
