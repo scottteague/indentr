@@ -168,13 +168,17 @@ public class MarkdownColorizer(FontFamily monoFamily, FontFamily proportionalFam
             string prefix = m.Groups[1].Value;
             IBrush b = prefix.Length > 0 ? PrefixBrush(prefix[0]) : BrushRed;
             int docStart = line.Offset + m.Index;
-            int docEnd   = line.Offset + m.Index + m.Length + 1;
+            int docEnd   = line.Offset + m.Index + m.Length;
+            int lineEnd  = line.Offset + line.Length;
             if (prefix.Length > 0)
             {
                 // Split the call so AvaloniaEdit sees a clean element boundary after the
                 // prefix letter. Without this, the second __ is excluded from the styled run.
+                // If the span sits at end-of-line, there's no character after the closing __
+                // to absorb the +1, so cap at the line end to avoid an out-of-range error.
+                int styledEnd = Math.Min(docEnd + 1, lineEnd);
                 ChangeLinePart(docStart,     docStart + 1, el => el.TextRunProperties.SetForegroundBrush(b));
-                ChangeLinePart(docStart + 1, docEnd,       el => el.TextRunProperties.SetForegroundBrush(b));
+                ChangeLinePart(docStart + 1, styledEnd,    el => el.TextRunProperties.SetForegroundBrush(b));
             }
             else
             {
